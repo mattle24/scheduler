@@ -398,6 +398,59 @@ function assignHomeAway(games, numTeams) {
   return result;
 }
 
+// ─── Module 3b: Post-Hoc Home/Away Rebalancing ─────────────────────────────
+function rebalanceHomeAway(schedule, numTeams, gamesPerTeam) {
+  const target = gamesPerTeam / 2;
+
+  // excess[t] = homeCount[t] - target; positive = too many homes
+  const excess = new Array(numTeams).fill(0);
+  for (const g of schedule) excess[g.home]++;
+  for (let t = 0; t < numTeams; t++) excess[t] -= target;
+
+  // Greedy pass: flip games where home team has excess > 0 and away team has excess < 0
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const g of schedule) {
+      if (excess[g.home] > 0 && excess[g.away] < 0) {
+        const oldHome = g.home, oldAway = g.away;
+        g.home = oldAway;
+        g.away = oldHome;
+        excess[oldHome]--;
+        excess[oldAway]++;
+        changed = true;
+      }
+    }
+  }
+
+  // Chain pass: find 2-hop paths through intermediate teams at excess 0
+  for (let t = 0; t < numTeams; t++) {
+    while (excess[t] > 0) {
+      let flipped = false;
+      for (const g1 of schedule) {
+        if (g1.home !== t) continue;
+        const mid = g1.away;
+        if (excess[mid] < 0) continue;
+        for (const g2 of schedule) {
+          if (g2.home !== mid) continue;
+          const dest = g2.away;
+          if (excess[dest] >= 0) continue;
+          // Flip both: t->mid becomes mid->t, mid->dest becomes dest->mid
+          // t loses a home, dest gains a home, mid nets to 0
+          g1.home = mid; g1.away = t;
+          g2.home = dest; g2.away = mid;
+          excess[t]--;
+          excess[dest]++;
+          flipped = true;
+          break;
+        }
+        if (flipped) break;
+      }
+      if (!flipped) break;
+    }
+  }
+}
+
 // ─── Module 4: Build Schedule (Round-Robin Tournament Approach) ─────────────
 function tryBuildSchedule(games, slots, numTeams) {
   const totalGames = games.length;
@@ -632,7 +685,10 @@ function buildSchedule(numTeams, gamesPerTeam, slots) {
 
   const haGames = assignHomeAway(allPairs, numTeams);
   const games = haGames.map(g => ({ home: g.home, away: g.away }));
-  return tryBuildSchedule(games, slots, numTeams);
+  const result = tryBuildSchedule(games, slots, numTeams);
+  rebalanceHomeAway(result.schedule, numTeams, gamesPerTeam);
+  result.details = scoreDetails(result.schedule, numTeams, slots);
+  return result;
 }
 
 // Helper to record a game assignment and update tracking structures
