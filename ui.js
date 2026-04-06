@@ -1,6 +1,83 @@
 // ─── UI Controller ───────────────────────────────────────────────────────────
 let lastCSV = '';
 let cachedFieldNames = []; // field names parsed from TSV header
+const STORAGE_KEY = 'scheduler_state';
+
+// ─── LocalStorage Persistence ───────────────────────────────────────────────
+
+function saveState() {
+  const rows = document.querySelectorAll('#divisionTable tbody tr');
+  const divisions = [];
+  for (const tr of rows) {
+    const uncheckedFields = [];
+    for (const cb of tr.querySelectorAll('.div-fields input[type="checkbox"]')) {
+      if (!cb.checked) uncheckedFields.push(cb.value);
+    }
+    divisions.push({
+      name: tr.querySelector('.div-name').value,
+      numTeams: tr.querySelector('.div-teams').value,
+      gamesPerTeam: tr.querySelector('.div-games').value,
+      leagueSplit: tr.querySelector('.div-league').checked,
+      uncheckedFields
+    });
+  }
+
+  const weights = {};
+  for (const key in WEIGHTS) {
+    const el = document.getElementById('w_' + key);
+    if (el) weights[key] = el.value;
+  }
+
+  const state = {
+    divisions,
+    tsv: document.getElementById('tsvInput').value,
+    weights
+  };
+
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* quota exceeded */ }
+}
+
+function loadState() {
+  let state;
+  try { state = JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch (e) { return null; }
+  return state;
+}
+
+function restoreState(state) {
+  // Restore TSV first so field checkboxes can populate
+  if (state.tsv) {
+    document.getElementById('tsvInput').value = state.tsv;
+    updateFieldChoices();
+  }
+
+  // Restore penalty weights
+  if (state.weights) {
+    for (const key in state.weights) {
+      const el = document.getElementById('w_' + key);
+      if (el) el.value = state.weights[key];
+    }
+  }
+
+  // Restore divisions
+  if (state.divisions && state.divisions.length > 0) {
+    const tbody = document.querySelector('#divisionTable tbody');
+    tbody.innerHTML = '';
+    for (const div of state.divisions) {
+      addDivisionRow(div.name, div.numTeams, div.gamesPerTeam, div.leagueSplit);
+      // Uncheck fields that were unchecked
+      const tr = tbody.lastElementChild;
+      for (const cb of tr.querySelectorAll('.div-fields input[type="checkbox"]')) {
+        if (div.uncheckedFields.includes(cb.value)) cb.checked = false;
+      }
+    }
+  }
+}
+
+let saveTimer;
+function debouncedSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveState, 500);
+}
 
 function togglePenalties() {
   const body = document.getElementById('penaltyWeights');
@@ -44,12 +121,14 @@ function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit) {
 
   tbody.appendChild(tr);
   populateFieldCheckboxes(tr);
+  debouncedSave();
 }
 
 function removeDivisionRow(btn) {
   const tbody = document.querySelector('#divisionTable tbody');
   if (tbody.rows.length <= 1) return;
   btn.closest('tr').remove();
+  debouncedSave();
 }
 
 function populateFieldCheckboxes(tr) {
@@ -576,6 +655,7 @@ function loadSample() {
 
   document.getElementById('tsvInput').value = tsv;
   updateFieldChoices();
+  debouncedSave();
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -583,15 +663,31 @@ function loadSample() {
 document.addEventListener('DOMContentLoaded', () => {
   buildPenaltyGrid();
 
-  // Start with one empty division row
-  addDivisionRow();
+  // Restore saved state or start with one empty division row
+  const saved = loadState();
+  if (saved) {
+    restoreState(saved);
+  } else {
+    addDivisionRow();
+  }
 
   // Update field checkboxes when TSV changes
   let debounceTimer;
   document.getElementById('tsvInput').addEventListener('input', () => {
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(updateFieldChoices, 300);
+    debounceTimer = setTimeout(() => {
+      updateFieldChoices();
+      debouncedSave();
+    }, 300);
   });
+
+  // Auto-save on division table changes
+  const divTable = document.getElementById('divisionTable');
+  divTable.addEventListener('input', debouncedSave);
+  divTable.addEventListener('change', debouncedSave);
+
+  // Auto-save on penalty weight changes
+  document.getElementById('penaltyGrid').addEventListener('input', debouncedSave);
 
   document.getElementById('tsvFile').addEventListener('change', handleFileUpload);
 });
@@ -613,6 +709,7 @@ function handleFileUpload(e) {
   reader.onload = (evt) => {
     document.getElementById('tsvInput').value = evt.target.result;
     updateFieldChoices();
+    debouncedSave();
   };
   reader.readAsText(file);
 }
