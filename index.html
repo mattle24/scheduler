@@ -23,6 +23,12 @@
       <label for="gamesPerTeam">Games per Team</label>
       <input type="number" id="gamesPerTeam" min="1" max="100" value="">
     </div>
+    <div>
+      <label for="leagueSplit" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+        <input type="checkbox" id="leagueSplit">
+        Split into AL / NL
+      </label>
+    </div>
     <div style="align-self: flex-end;">
       <button class="btn-secondary btn-sm" onclick="loadSample()">Load Sample Data</button>
     </div>
@@ -48,6 +54,7 @@
           <li>No team plays 3+ consecutive calendar days</li>
           <li>In the first 10 days, no team plays within 2 days of each other</li>
           <li>In the last 5 days, each team plays at most 1 game</li>
+          <li>AL/NL: each team plays every intra-league opponent at least once</li>
         </ul>
       </div>
     </div>

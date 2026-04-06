@@ -6,16 +6,18 @@ Browser-based little league baseball/softball scheduler. No server, no build too
 Whenever you make a change, check whether you need to update CLAUDE.md (this file) to keep it correct and up to date.
 
 ## Files
-- **scheduler.js** (~900 lines) — Core engine: TSV parsing, round-robin tournament generation, matchup selection, home/away assignment, greedy schedule builder, scoring/penalty system
+- **scheduler.js** (~1100 lines) — Core engine: TSV parsing, round-robin tournament generation, matchup selection (standard + AL/NL league-aware), home/away assignment, greedy schedule builder, scoring/penalty system
 - **annealing.js** (~230 lines) — Simulated annealing optimizer: swap and relocate moves with hard constraint checks (same-day conflict, 3-consecutive-day limit)
 - **ui.js** (~320 lines) — UI rendering: score cards, per-team summary table, schedule table, heatmap, CSV export, penalty weight sync
 - **index.html** — Minimal shell with input form and result sections. Loads: styles.css, scheduler.js, annealing.js, ui.js
 - **styles.css** — All styling including CSS-only tooltips and heatmap
 
 ## Architecture / Pipeline
-1. `buildSchedule()` (entry point in scheduler.js, called from ui.js `generate()`)
+1. `buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options)` (entry point in scheduler.js, called from ui.js `generate()`)
+   - `options.leagueSplit` — when true, uses AL/NL league-aware matchup selection
 2. `generateTournamentRounds()` — circle/polygon algorithm, produces perfect matchings
 3. `selectMatchups()` — splits rounds into weekend (full rounds) and weekday (remainder)
+   - OR `selectMatchupsWithLeagues()` — layered fill: intra-league pairs first, then inter-league, alternating layers
 4. `assignHomeAway()` — greedy + 2 repair passes (per-matchup balance, then overall ±1)
 5. `tryBuildSchedule()` — Phase 1: weekend rounds to weekend slots; Phase 2: weekday greedy assignment. 200 random attempts, keeps best.
 6. `anneal()` — simulated annealing with swap/relocate moves, linear cooling
@@ -42,10 +44,22 @@ Weighted sum of penalties. Current weights in `WEIGHTS` global:
 Users can adjust all weights via collapsible "Penalty Weights" panel in Settings.
 
 ## Hard Constraints (enforced in greedy builder + SA)
+
+Show hard constraints in the UI in the penalty weights section.
+
 - No team plays twice on the same day
 - No team plays 3+ consecutive calendar days (`hasConsecutiveDays` / `teamHasConsecutiveDays`)
 - In the first 10 days of the season, no team can have games within 2 days of each other (`hasEarlySeasonConflict` / `teamHasEarlySeasonConflict`)
 - In the last 5 days of the season, each team plays at most 1 game (`endOfSeasonCutoff`)
+- AL/NL split: each team plays every intra-league opponent at least once (`validateLeagueSplit`)
+
+## AL/NL League Split (optional)
+When "Split into AL / NL" checkbox is enabled:
+- AL = teams 0..floor(n/2)-1, NL = teams floor(n/2)..n-1 (odd count → NL gets extra)
+- Matchup fill order (layered): intra-league layer → inter-league layer → repeat
+- Intra-league rounds generated via circle algorithm on each sub-league
+- Inter-league rounds generated via bipartite round-robin (round r: AL[i] vs NL[(i+r) % nlSize])
+- Hard constraint: gamesPerTeam must be >= max(alSize, nlSize) - 1
 
 ## Known Issues
 - None

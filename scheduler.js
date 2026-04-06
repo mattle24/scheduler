@@ -236,6 +236,159 @@ function generateTournamentRounds(numTeams) {
   return rounds;
 }
 
+// ─── Module 2a: League-Aware Matchup Selection ─────────────────────────────
+// When AL-NL split is enabled, generates matchups using a layered fill:
+//   Layer 1: every intra-league pair once
+//   Layer 2: every inter-league pair once
+//   Layer 3: every intra-league pair again
+//   ... until gamesPerTeam is reached.
+function selectMatchupsWithLeagues(numTeams, gamesPerTeam, numWeekends) {
+  const totalGames = numTeams * gamesPerTeam / 2;
+  if (totalGames !== Math.floor(totalGames)) {
+    throw new Error(`${numTeams} teams × ${gamesPerTeam} games = ${numTeams * gamesPerTeam} team-games, which is odd and can't form whole matchups. Adjust so the product is even.`);
+  }
+
+  const alSize = Math.floor(numTeams / 2);
+  const nlSize = numTeams - alSize;
+  const alTeams = Array.from({length: alSize}, (_, i) => i);
+  const nlTeams = Array.from({length: nlSize}, (_, i) => i + alSize);
+
+  // Generate intra-league rounds using circle algorithm, mapped to real team IDs
+  function subLeagueRounds(teams) {
+    if (teams.length < 2) return [];
+    const rounds = generateTournamentRounds(teams.length);
+    return rounds.map(round => round.map(([a, b]) => [teams[a], teams[b]]));
+  }
+
+  const alRounds = subLeagueRounds(alTeams);
+  const nlRounds = subLeagueRounds(nlTeams);
+
+  // Merge AL and NL intra rounds (they don't conflict — disjoint team sets)
+  const intraRounds = [];
+  const maxIntraRounds = Math.max(alRounds.length, nlRounds.length);
+  for (let i = 0; i < maxIntraRounds; i++) {
+    const round = [];
+    if (i < alRounds.length) round.push(...alRounds[i]);
+    if (i < nlRounds.length) round.push(...nlRounds[i]);
+    intraRounds.push(round);
+  }
+
+  // Generate inter-league rounds (complete bipartite matching)
+  // Round r: alTeams[i] vs nlTeams[(i + r) % nlSize]
+  const interRounds = [];
+  const numInterRounds = nlSize; // covers all alSize × nlSize pairs
+  for (let r = 0; r < numInterRounds; r++) {
+    const round = [];
+    for (let i = 0; i < alSize; i++) {
+      round.push([alTeams[i], nlTeams[(i + r) % nlSize]]);
+    }
+    interRounds.push(round);
+  }
+
+  // Layered fill: intra layer, inter layer, intra layer, inter layer...
+  const collectedRounds = [];
+  let intraIdx = 0, interIdx = 0;
+  let gameCount = 0;
+  let phase = 'intra';
+
+  while (gameCount < totalGames) {
+    if (phase === 'intra') {
+      for (let i = 0; i < intraRounds.length && gameCount < totalGames; i++) {
+        const round = intraRounds[(intraIdx + i) % intraRounds.length];
+        collectedRounds.push([...round]);
+        gameCount += round.length;
+      }
+      intraIdx += intraRounds.length;
+      phase = 'inter';
+    } else {
+      for (let i = 0; i < interRounds.length && gameCount < totalGames; i++) {
+        const round = interRounds[(interIdx + i) % interRounds.length];
+        collectedRounds.push([...round]);
+        gameCount += round.length;
+      }
+      interIdx += interRounds.length;
+      phase = 'intra';
+    }
+  }
+
+  // Flatten all collected games, then trim to exactly totalGames while keeping
+  // per-team counts balanced. Drop games from the end where the involved teams
+  // have the highest game counts.
+  let allPairs = [];
+  for (const round of collectedRounds) {
+    for (const pair of round) allPairs.push(pair);
+  }
+
+  if (allPairs.length > totalGames) {
+    // Count games per team
+    const counts = new Array(numTeams).fill(0);
+    for (const [a, b] of allPairs) { counts[a]++; counts[b]++; }
+
+    // Greedily remove games where both teams are most over-represented
+    while (allPairs.length > totalGames) {
+      let worstIdx = -1, worstScore = -Infinity;
+      for (let i = allPairs.length - 1; i >= 0; i--) {
+        const [a, b] = allPairs[i];
+        const score = counts[a] + counts[b];
+        if (score > worstScore) { worstScore = score; worstIdx = i; }
+      }
+      const [a, b] = allPairs[worstIdx];
+      counts[a]--; counts[b]--;
+      allPairs.splice(worstIdx, 1);
+    }
+  }
+
+  // Re-group into rounds for weekend scheduling: take chunks that form valid matchings
+  // (no team appears twice in a round). Simple greedy grouping.
+  collectedRounds.length = 0;
+  const used = new Array(allPairs.length).fill(false);
+  let remaining = allPairs.length;
+  while (remaining > 0) {
+    const round = [];
+    const inRound = new Set();
+    for (let i = 0; i < allPairs.length; i++) {
+      if (used[i]) continue;
+      const [a, b] = allPairs[i];
+      if (inRound.has(a) || inRound.has(b)) continue;
+      round.push(allPairs[i]);
+      inRound.add(a);
+      inRound.add(b);
+      used[i] = true;
+      remaining--;
+    }
+    collectedRounds.push(round);
+  }
+
+  // Split into weekend rounds and weekday games (same logic as selectMatchups)
+  const weekendRounds = collectedRounds.slice(0, Math.min(numWeekends, collectedRounds.length));
+  const weekdayGames = [];
+  const weekdayRoundsArr = collectedRounds.slice(weekendRounds.length);
+  const weekendGameCount = weekendRounds.reduce((sum, r) => sum + r.length, 0);
+  let weekdayNeeded = totalGames - weekendGameCount;
+  for (const round of weekdayRoundsArr) {
+    for (const game of round) {
+      if (weekdayNeeded <= 0) break;
+      weekdayGames.push(game);
+      weekdayNeeded--;
+    }
+  }
+
+  return { weekendRounds, weekdayGames };
+}
+
+// Validate that the intra-league hard constraint is satisfiable
+function validateLeagueSplit(numTeams, gamesPerTeam) {
+  const alSize = Math.floor(numTeams / 2);
+  const nlSize = numTeams - alSize;
+  const maxLeagueSize = Math.max(alSize, nlSize);
+  // Each team must play every intra-league opponent at least once
+  const minGamesNeeded = maxLeagueSize - 1;
+  if (gamesPerTeam < minGamesNeeded) {
+    return `AL-NL split requires at least ${minGamesNeeded} games per team (to play every league opponent once), but only ${gamesPerTeam} configured.`;
+  }
+  return null;
+}
+
 // ─── Module 2b: Select Matchups from Tournament Rounds ──────────────────────
 function selectMatchups(rounds, numTeams, gamesPerTeam, numWeekends) {
   const totalGames = numTeams * gamesPerTeam / 2;
@@ -490,7 +643,7 @@ function rebalanceHomeAway(schedule, numTeams, gamesPerTeam) {
 }
 
 // ─── Module 4: Build Schedule (Round-Robin Tournament Approach) ─────────────
-function tryBuildSchedule(games, slots, numTeams, onProgress) {
+function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchups) {
   const totalGames = games.length;
   if (slots.length < totalGames) {
     throw new Error(`Not enough slots: need ${totalGames} games but only ${slots.length} slots available.`);
@@ -501,10 +654,6 @@ function tryBuildSchedule(games, slots, numTeams, onProgress) {
   const seasonStartDate = allDates[0];
   const seasonEndDate = allDates[allDates.length - 1];
   const endOfSeasonCutoff = addDays(seasonEndDate, -4); // 5-day window inclusive
-
-  // Recover tournament structure: figure out how many teams and rebuild rounds
-  // from the games we were given (which already have home/away assigned)
-  const rounds = generateTournamentRounds(numTeams);
 
   // Identify weekend groups from slots
   const weekendGroupSet = new Set();
@@ -531,8 +680,14 @@ function tryBuildSchedule(games, slots, numTeams, onProgress) {
   // Determine how many games per team from the data
   const gamesPerTeam = totalGames * 2 / numTeams;
 
-  // Select matchups split into weekend rounds and weekday games
-  const { weekendRounds, weekdayGames } = selectMatchups(rounds, numTeams, gamesPerTeam, numWeekends);
+  // Use precomputed matchups if provided, otherwise generate from tournament rounds
+  let weekendRounds, weekdayGames;
+  if (precomputedMatchups) {
+    ({ weekendRounds, weekdayGames } = precomputedMatchups);
+  } else {
+    const rounds = generateTournamentRounds(numTeams);
+    ({ weekendRounds, weekdayGames } = selectMatchups(rounds, numTeams, gamesPerTeam, numWeekends));
+  }
 
   // Convert tournament [a,b] pairs to {home, away} using the provided games' H/A assignments
   // Build a lookup from the input games
@@ -735,7 +890,10 @@ function tryBuildSchedule(games, slots, numTeams, onProgress) {
 }
 
 // Entry point called by ui.js — handles matchup generation, H/A, and scheduling in one call
-function buildSchedule(numTeams, gamesPerTeam, slots, onProgress) {
+function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
+  options = options || {};
+  const leagueSplit = options.leagueSplit || false;
+
   // Determine weekend count from slots so selectMatchups uses the same pairs as scheduling
   const weekendGroupSet = new Set();
   for (const s of slots) {
@@ -743,8 +901,15 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress) {
   }
   const numWeekends = weekendGroupSet.size;
 
-  const rounds = generateTournamentRounds(numTeams);
-  const { weekendRounds, weekdayGames } = selectMatchups(rounds, numTeams, gamesPerTeam, numWeekends);
+  let weekendRounds, weekdayGames;
+  if (leagueSplit) {
+    const err = validateLeagueSplit(numTeams, gamesPerTeam);
+    if (err) throw new Error(err);
+    ({ weekendRounds, weekdayGames } = selectMatchupsWithLeagues(numTeams, gamesPerTeam, numWeekends));
+  } else {
+    const rounds = generateTournamentRounds(numTeams);
+    ({ weekendRounds, weekdayGames } = selectMatchups(rounds, numTeams, gamesPerTeam, numWeekends));
+  }
 
   // Flatten the actual selected pairs, then assign H/A on exactly those pairs
   const allPairs = [];
@@ -755,7 +920,7 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress) {
 
   const haGames = assignHomeAway(allPairs, numTeams);
   const games = haGames.map(g => ({ home: g.home, away: g.away }));
-  return tryBuildSchedule(games, slots, numTeams, onProgress).then(result => {
+  return tryBuildSchedule(games, slots, numTeams, onProgress, { weekendRounds, weekdayGames }).then(result => {
     rebalanceHomeAway(result.schedule, numTeams, gamesPerTeam);
     result.details = scoreDetails(result.schedule, numTeams, slots);
     return result;

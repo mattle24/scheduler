@@ -78,6 +78,8 @@ function generate() {
       if (!gamesPerTeam || gamesPerTeam < 1) throw new Error('Need at least 1 game per team');
       if (!tsvText.trim()) throw new Error('Please enter field availability data');
 
+      const leagueSplit = document.getElementById('leagueSplit').checked;
+
       syncWeights();
       const slots = parseTSV(tsvText);
 
@@ -92,7 +94,7 @@ function generate() {
         document.getElementById('progressFill').style.width = percent + '%';
         const label = score === Infinity ? percent + '%' : percent + '% — score: ' + score.toFixed(1);
         document.getElementById('progressLabel').textContent = label;
-      }).then(result => {
+      }, { leagueSplit }).then(result => {
         // Phase 2: Simulated annealing refinement
         statusBox.innerHTML = `
           <div>Phase 2: Optimizing schedule...</div>
@@ -109,7 +111,7 @@ function generate() {
         const finalDetails = scoreDetails(finalSchedule, numTeams, slots);
 
         lastCSV = formatCSV(finalSchedule);
-        renderResults(finalSchedule, finalDetails, numTeams, slots, result.details);
+        renderResults(finalSchedule, finalDetails, numTeams, slots, result.details, leagueSplit);
         statusBox.classList.add('hidden');
         document.getElementById('results').classList.remove('hidden');
       }).catch(e => {
@@ -124,11 +126,11 @@ function generate() {
 }
 
 function weightedScore(d) {
-  return d.weekendSitouts * 12 + d.weekdayBackToBack * 10 + d.weekendDoubleHeaders * 8 + d.crossBoundaryBTB * 7 + d.gapVariance * 6
-    + d.rollingDensity * 5 + d.sixDayDensity * 5 + d.shortGapPenalty * 3 + d.timeDistribution * 3 + d.fieldBalance * 4;
+  return d.weekendSitouts * WEIGHTS.weekendSitouts + d.weekdayBackToBack * WEIGHTS.weekdayBackToBack + d.weekendDoubleHeaders * WEIGHTS.weekendDoubleHeaders + d.crossBoundaryBTB * WEIGHTS.crossBoundaryBTB + d.gapVariance * WEIGHTS.gapVariance
+    + d.rollingDensity * WEIGHTS.rollingDensity + d.sixDayDensity * WEIGHTS.sixDayDensity + d.shortGapPenalty * WEIGHTS.shortGapPenalty + d.timeDistribution * WEIGHTS.timeDistribution + d.fieldBalance * WEIGHTS.fieldBalance;
 }
 
-function renderResults(schedule, details, numTeams, slots, greedyDetails) {
+function renderResults(schedule, details, numTeams, slots, greedyDetails, leagueSplit) {
   // Compute slot utilization
   const weekendSlots = slots.filter(s => s.dayOfWeek === 0 || s.dayOfWeek === 6).length;
   const weekdaySlots = slots.filter(s => s.dayOfWeek >= 1 && s.dayOfWeek <= 5).length;
@@ -174,6 +176,7 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails) {
   }).join('');
 
   // Per-team summary
+  const alSize = Math.floor(numTeams / 2);
   const teamData = [];
   for (let t = 0; t < numTeams; t++) {
     const games = schedule.filter(g => g.home === t || g.away === t);
@@ -182,16 +185,24 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails) {
     const dates = games.map(g => g.date).sort();
     const gaps = [];
     for (let i = 1; i < dates.length; i++) gaps.push(daysBetween(dates[i - 1], dates[i]));
-    const minGap = gaps.length ? Math.min(...gaps) : '-';
     const avgGap = gaps.length ? (gaps.reduce((a, b) => a + b, 0) / gaps.length).toFixed(1) : '-';
 
-    const wgCount = new Map();
-    for (const g of games) {
-      const wg = getWeekendGroup(g.date);
-      if (wg) wgCount.set(wg, (wgCount.get(wg) || 0) + 1);
+    // Count all back-to-backs (gap === 1)
+    let btb = 0;
+    for (const gap of gaps) {
+      if (gap === 1) btb++;
     }
-    let dh = 0;
-    for (const [, c] of wgCount) if (c > 1) dh += c - 1;
+
+    // Intra/inter league game counts
+    let intraLeague = 0, interLeague = 0;
+    if (leagueSplit) {
+      for (const g of games) {
+        const opponent = g.home === t ? g.away : g.home;
+        const sameLeague = (t < alSize && opponent < alSize) || (t >= alSize && opponent >= alSize);
+        if (sameLeague) intraLeague++;
+        else interLeague++;
+      }
+    }
 
     // Games per field
     const fieldCounts = new Map();
@@ -201,13 +212,15 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails) {
 
     teamData.push({
       team: `${t + 1}B`,
+      league: leagueSplit ? (t < alSize ? 'AL' : 'NL') : null,
       games: games.length,
       home: homeGames,
       away: awayGames,
       haDiff: homeGames - awayGames,
-      minGap,
       avgGap,
-      weekendDH: dh,
+      btb,
+      intraLeague,
+      interLeague,
       fieldCounts
     });
   }
@@ -215,11 +228,17 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails) {
   // Collect all field names from the schedule, sorted
   const allFields = [...new Set(schedule.map(g => g.field))].sort();
 
-  let html = '<table><thead><tr><th>Team</th><th>Games</th><th>Home</th><th>Away</th><th>H/A Diff</th><th>Min Gap</th><th>Avg Gap</th><th>Wknd BTB</th>';
+  let html = '<table><thead><tr>';
+  if (leagueSplit) html += '<th>League</th>';
+  html += '<th>Team</th><th>Games</th><th>Home</th><th>Away</th><th>H/A Diff</th><th>Avg Gap</th><th>Back-to-Back</th>';
+  if (leagueSplit) html += '<th>Intra</th><th>Inter</th>';
   for (const f of allFields) html += `<th>${f}</th>`;
   html += '</tr></thead><tbody>';
   for (const r of teamData) {
-    html += `<tr><td>${r.team}</td><td>${r.games}</td><td>${r.home}</td><td>${r.away}</td><td>${r.haDiff >= 0 ? '+' : ''}${r.haDiff}</td><td>${r.minGap}</td><td>${r.avgGap}</td><td>${r.weekendDH}</td>`;
+    html += '<tr>';
+    if (leagueSplit) html += `<td>${r.league}</td>`;
+    html += `<td>${r.team}</td><td>${r.games}</td><td>${r.home}</td><td>${r.away}</td><td>${r.haDiff >= 0 ? '+' : ''}${r.haDiff}</td><td>${r.avgGap}</td><td>${r.btb}</td>`;
+    if (leagueSplit) html += `<td>${r.intraLeague}</td><td>${r.interLeague}</td>`;
     for (const f of allFields) html += `<td>${r.fieldCounts.get(f) || 0}</td>`;
     html += '</tr>';
   }
