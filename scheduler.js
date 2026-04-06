@@ -248,10 +248,15 @@ function selectMatchupsWithLeagues(numTeams, gamesPerTeam, numWeekends) {
     throw new Error(`${numTeams} teams × ${gamesPerTeam} games = ${numTeams * gamesPerTeam} team-games, which is odd and can't form whole matchups. Adjust so the product is even.`);
   }
 
-  const alSize = Math.floor(numTeams / 2);
-  const nlSize = numTeams - alSize;
-  const alTeams = Array.from({length: alSize}, (_, i) => i);
-  const nlTeams = Array.from({length: nlSize}, (_, i) => i + alSize);
+  // Odd-numbered teams (1B,3B,5B…) → AL, even-numbered (2B,4B,6B…) → NL
+  const alTeams = [];
+  const nlTeams = [];
+  for (let i = 0; i < numTeams; i++) {
+    if ((i + 1) % 2 === 1) alTeams.push(i); // display-odd → AL
+    else nlTeams.push(i);                     // display-even → NL
+  }
+  const alSize = alTeams.length;
+  const nlSize = nlTeams.length;
 
   // Generate intra-league rounds using circle algorithm, mapped to real team IDs
   function subLeagueRounds(teams) {
@@ -380,8 +385,8 @@ function selectMatchupsWithLeagues(numTeams, gamesPerTeam, numWeekends) {
 
 // Validate that the intra-league hard constraint is satisfiable
 function validateLeagueSplit(numTeams, gamesPerTeam) {
-  const alSize = Math.floor(numTeams / 2);
-  const nlSize = numTeams - alSize;
+  const alSize = Math.ceil(numTeams / 2);  // odd-numbered teams
+  const nlSize = numTeams - alSize;         // even-numbered teams
   const maxLeagueSize = Math.max(alSize, nlSize);
   // Each team must play every intra-league opponent at least once
   const minGamesNeeded = maxLeagueSize - 1;

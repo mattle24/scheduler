@@ -74,7 +74,7 @@ Show hard constraints in the UI in the penalty weights section.
 
 ## AL/NL League Split (optional, per-division)
 When a division's "AL/NL" checkbox is enabled:
-- AL = teams 0..floor(n/2)-1, NL = teams floor(n/2)..n-1 (odd count → NL gets extra)
+- AL = odd-numbered teams (1B, 3B, 5B…), NL = even-numbered teams (2B, 4B, 6B…); odd team count → AL gets extra
 - Matchup fill order (layered): intra-league layer → inter-league layer → repeat
 - Intra-league rounds generated via circle algorithm on each sub-league
 - Inter-league rounds generated via bipartite round-robin (round r: AL[i] vs NL[(i+r) % nlSize])

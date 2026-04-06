@@ -441,7 +441,8 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
   container.appendChild(scoreCard);
 
   // Per-team summary
-  const alSize = Math.floor(numTeams / 2);
+  // Odd display numbers (1B,3B,5B…) → AL, even (2B,4B,6B…) → NL
+  const isAL = t => (t + 1) % 2 === 1;
   const teamData = [];
   for (let t = 0; t < numTeams; t++) {
     const games = schedule.filter(g => g.home === t || g.away === t);
@@ -461,7 +462,7 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
     if (leagueSplit) {
       for (const g of games) {
         const opponent = g.home === t ? g.away : g.home;
-        const sameLeague = (t < alSize && opponent < alSize) || (t >= alSize && opponent >= alSize);
+        const sameLeague = isAL(t) === isAL(opponent);
         if (sameLeague) intraLeague++;
         else interLeague++;
       }
@@ -474,7 +475,7 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
 
     teamData.push({
       team: `${t + 1}B`,
-      league: leagueSplit ? (t < alSize ? 'AL' : 'NL') : null,
+      league: leagueSplit ? (isAL(t) ? 'AL' : 'NL') : null,
       games: games.length,
       home: homeGames,
       away: awayGames,
@@ -484,6 +485,14 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
       intraLeague,
       interLeague,
       fieldCounts
+    });
+  }
+
+  // Sort by league (AL first) then team number
+  if (leagueSplit) {
+    teamData.sort((a, b) => {
+      if (a.league !== b.league) return a.league === 'AL' ? -1 : 1;
+      return parseInt(a.team) - parseInt(b.team);
     });
   }
 
