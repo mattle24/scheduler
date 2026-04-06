@@ -1,6 +1,20 @@
 // ─── UI Controller ───────────────────────────────────────────────────────────
 let lastCSV = '';
 
+function togglePenalties() {
+  const body = document.getElementById('penaltyWeights');
+  const header = document.querySelector('.penalty-header');
+  body.classList.toggle('hidden');
+  header.classList.toggle('open');
+}
+
+function syncWeights() {
+  for (const key in WEIGHTS) {
+    const el = document.getElementById('w_' + key);
+    if (el) WEIGHTS[key] = parseInt(el.value) || 0;
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('tsvFile').addEventListener('change', handleFileUpload);
 });
@@ -52,6 +66,7 @@ function generate() {
       if (!gamesPerTeam || gamesPerTeam < 1) throw new Error('Need at least 1 game per team');
       if (!tsvText.trim()) throw new Error('Please enter field availability data');
 
+      syncWeights();
       const slots = parseTSV(tsvText);
       const result = buildSchedule(numTeams, gamesPerTeam, slots);
 
@@ -81,6 +96,11 @@ function generate() {
   }, 50);
 }
 
+function weightedScore(d) {
+  return d.weekendSitouts * 12 + d.weekdayBackToBack * 10 + d.weekendDoubleHeaders * 8 + d.crossBoundaryBTB * 7 + d.gapVariance * 6
+    + d.rollingDensity * 5 + d.sixDayDensity * 5 + d.shortGapPenalty * 3 + d.timeDistribution * 3 + d.fieldBalance * 4;
+}
+
 function renderResults(schedule, details, numTeams, slots, greedyDetails) {
   // Compute slot utilization
   const weekendSlots = slots.filter(s => s.dayOfWeek === 0 || s.dayOfWeek === 6).length;
@@ -88,14 +108,24 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails) {
   const weekendUsed = schedule.filter(g => { const dow = new Date(g.date + 'T00:00:00').getDay(); return dow === 0 || dow === 6; }).length;
   const weekdayUsed = schedule.filter(g => { const dow = new Date(g.date + 'T00:00:00').getDay(); return dow >= 1 && dow <= 5; }).length;
 
+  const greedyScore = Math.round(weightedScore(greedyDetails) * 10) / 10;
+  const finalScore = Math.round(weightedScore(details) * 10) / 10;
+  const improvement = greedyScore > 0 ? Math.round((1 - finalScore / greedyScore) * 100) : 0;
+
   const cards = [
+    { label: 'Greedy Score', value: greedyScore, rawClass: 'neutral',
+      tip: 'Weighted composite score after the initial greedy scheduler, before optimization.' },
+    { label: 'Optimized Score', value: finalScore, rawClass: 'neutral',
+      tip: 'Weighted composite score after simulated annealing optimization. Lower is better.' },
+    { label: 'Improvement', value: `${improvement}%`, rawClass: 'neutral',
+      tip: 'Percentage reduction in score from greedy to optimized. Higher is better.' },
     { label: 'Weekend Slots', value: `${weekendUsed} / ${weekendSlots}`, rawClass: 'neutral',
       tip: 'Games scheduled on weekend slots out of total available weekend slots.' },
     { label: 'Weekday Slots', value: `${weekdayUsed} / ${weekdaySlots}`, rawClass: 'neutral',
       tip: 'Games scheduled on weekday slots out of total available weekday slots.' },
     { label: 'Weekend Sit-outs', value: details.weekendSitouts, min: 0,
       tip: 'Number of times a team has zero games on a weekend that has available slots. Lower is better.' },
-    { label: 'Weekend Double-Headers', value: details.weekendDoubleHeaders, min: details.minWeekendDH,
+    { label: 'Weekend Back-to-Back', value: details.weekendDoubleHeaders, min: details.minWeekendDH,
       tip: 'Number of times a team plays 2+ games in the same Sat-Sun weekend. Each extra game beyond 1 counts as 1.' },
     { label: 'Weekday Back-to-Back', value: details.weekdayBackToBack, min: 0,
       tip: 'Number of times a team plays on consecutive weekdays (e.g. Mon+Tue). Bad for pitcher rest. Lower is better.' },
@@ -136,15 +166,6 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails) {
     let dh = 0;
     for (const [, c] of wgCount) if (c > 1) dh += c - 1;
 
-    // Weekly clumps for this team
-    const weekCount = new Map();
-    for (const g of games) {
-      const w = isoWeek(g.date);
-      weekCount.set(w, (weekCount.get(w) || 0) + 1);
-    }
-    let clumps = 0;
-    for (const [, c] of weekCount) if (c > 1) clumps += c - 1;
-
     // Games per field
     const fieldCounts = new Map();
     for (const g of games) {
@@ -160,7 +181,6 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails) {
       minGap,
       avgGap,
       weekendDH: dh,
-      clumps,
       fieldCounts
     });
   }
@@ -168,11 +188,11 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails) {
   // Collect all field names from the schedule, sorted
   const allFields = [...new Set(schedule.map(g => g.field))].sort();
 
-  let html = '<table><thead><tr><th>Team</th><th>Games</th><th>Home</th><th>Away</th><th>H/A Diff</th><th>Min Gap</th><th>Avg Gap</th><th>Wknd DH</th><th>Wk Clumps</th>';
+  let html = '<table><thead><tr><th>Team</th><th>Games</th><th>Home</th><th>Away</th><th>H/A Diff</th><th>Min Gap</th><th>Avg Gap</th><th>Wknd BTB</th>';
   for (const f of allFields) html += `<th>${f}</th>`;
   html += '</tr></thead><tbody>';
   for (const r of teamData) {
-    html += `<tr><td>${r.team}</td><td>${r.games}</td><td>${r.home}</td><td>${r.away}</td><td>${r.haDiff >= 0 ? '+' : ''}${r.haDiff}</td><td>${r.minGap}</td><td>${r.avgGap}</td><td>${r.weekendDH}</td><td>${r.clumps}</td>`;
+    html += `<tr><td>${r.team}</td><td>${r.games}</td><td>${r.home}</td><td>${r.away}</td><td>${r.haDiff >= 0 ? '+' : ''}${r.haDiff}</td><td>${r.minGap}</td><td>${r.avgGap}</td><td>${r.weekendDH}</td>`;
     for (const f of allFields) html += `<td>${r.fieldCounts.get(f) || 0}</td>`;
     html += '</tr>';
   }

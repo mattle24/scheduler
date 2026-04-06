@@ -2,6 +2,19 @@
 const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const NUM_ATTEMPTS = 200;
 
+const WEIGHTS = {
+  weekendSitouts: 12,
+  weekdayBackToBack: 10,
+  weekendDoubleHeaders: 8,
+  crossBoundaryBTB: 7,
+  gapVariance: 6,
+  rollingDensity: 5,
+  sixDayDensity: 5,
+  shortGapPenalty: 3,
+  timeDistribution: 3,
+  fieldBalance: 4
+};
+
 // ─── Utilities ───────────────────────────────────────────────────────────────
 function shuffle(arr) {
   const a = [...arr];
@@ -658,8 +671,8 @@ function recordAssignment(schedule, slot, home, away, teamDay, teamWeekend, team
 // ─── Scoring ─────────────────────────────────────────────────────────────────
 function scoreCandidate(schedule, numTeams, slots) {
   const d = scoreDetails(schedule, numTeams, slots);
-  return d.weekendSitouts * 12 + d.weekdayBackToBack * 10 + d.weekendDoubleHeaders * 8 + d.crossBoundaryBTB * 7 + d.gapVariance * 6
-    + d.rollingDensity * 5 + d.sixDayDensity * 5 + d.weeklyClumps * 4 + d.shortGapPenalty * 3 + d.timeDistribution * 3 + d.fieldBalance * 4;
+  return d.weekendSitouts * WEIGHTS.weekendSitouts + d.weekdayBackToBack * WEIGHTS.weekdayBackToBack + d.weekendDoubleHeaders * WEIGHTS.weekendDoubleHeaders + d.crossBoundaryBTB * WEIGHTS.crossBoundaryBTB + d.gapVariance * WEIGHTS.gapVariance
+    + d.rollingDensity * WEIGHTS.rollingDensity + d.sixDayDensity * WEIGHTS.sixDayDensity + d.shortGapPenalty * WEIGHTS.shortGapPenalty + d.timeDistribution * WEIGHTS.timeDistribution + d.fieldBalance * WEIGHTS.fieldBalance;
 }
 
 function scoreDetails(schedule, numTeams, allSlots) {
@@ -679,11 +692,6 @@ function scoreDetails(schedule, numTeams, allSlots) {
   const numActiveWeekends = activeWeekends.size;
 
   const weekdaySlotCount = allSlots.filter(s => !s.weekendGroup).length;
-  const weekendSlotCount = allSlots.filter(s => s.weekendGroup).length;
-
-  const allWeeks = new Set();
-  for (const s of allSlots) allWeeks.add(s.week);
-  const numWeeks = allWeeks.size;
 
   let weekendSitouts = 0;
   for (let t = 0; t < numTeams; t++) {
@@ -726,19 +734,6 @@ function scoreDetails(schedule, numTeams, allSlots) {
     gapVariance += Math.sqrt(variance);
   }
 
-  let weeklyClumps = 0;
-  for (let t = 0; t < numTeams; t++) {
-    const weekCount = new Map();
-    for (const g of teamGames.get(t)) {
-      const w = isoWeek(g.date);
-      weekCount.set(w, (weekCount.get(w) || 0) + 1);
-    }
-    for (const [, c] of weekCount) {
-      if (c > 1) weeklyClumps += c - 1;
-    }
-  }
-  const minClumpsPerTeam = Math.max(0, gamesPerTeam - numWeeks);
-  const minWeeklyClumps = minClumpsPerTeam * numTeams;
 
   let shortGapPenalty = 0;
   let weekdayBackToBack = 0;
@@ -833,11 +828,11 @@ function scoreDetails(schedule, numTeams, allSlots) {
 
   return {
     weekendSitouts, weekendDoubleHeaders, gapVariance: Math.round(gapVariance * 100) / 100,
-    weeklyClumps, weekdayBackToBack, crossBoundaryBTB, shortGapPenalty: Math.round(shortGapPenalty * 100) / 100,
+    weekdayBackToBack, crossBoundaryBTB, shortGapPenalty: Math.round(shortGapPenalty * 100) / 100,
     rollingDensity, sixDayDensity,
     timeDistribution: Math.round(timeDistribution * 100) / 100,
     fieldBalance: Math.round(fieldBalance * 100) / 100,
-    minWeekendDH, minWeeklyClumps
+    minWeekendDH
   };
 }
 
