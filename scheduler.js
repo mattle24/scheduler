@@ -906,7 +906,7 @@ function formatCSV(schedule) {
     const d = new Date(g.date + 'T00:00:00');
     const day = DAYS[d.getDay()];
     const dateDisplay = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-    lines.push(`${day},${dateDisplay},${formatTimeDisplay(g.time)},${g.field},Team ${g.away + 1},Team ${g.home + 1}`);
+    lines.push(`${day},${dateDisplay},${formatTimeDisplay(g.time)},${g.field},${g.away + 1}B,${g.home + 1}B`);
   }
   return lines.join('\n');
 }

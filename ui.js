@@ -173,7 +173,7 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails) {
     }
 
     teamData.push({
-      team: `Team ${t + 1}`,
+      team: `${t + 1}B`,
       games: games.length,
       home: homeGames,
       away: awayGames,
@@ -212,7 +212,7 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails) {
     const d = new Date(g.date + 'T00:00:00');
     const day = DAYS[d.getDay()].slice(0, 3);
     const dateDisplay = `${d.getMonth() + 1}/${d.getDate()}`;
-    shtml += `<tr><td>${day}</td><td>${dateDisplay}</td><td>${formatTimeDisplay(g.time)}</td><td>${g.field}</td><td>Team ${g.away + 1}</td><td>Team ${g.home + 1}</td></tr>`;
+    shtml += `<tr><td>${day}</td><td>${dateDisplay}</td><td>${formatTimeDisplay(g.time)}</td><td>${g.field}</td><td>${g.away + 1}B</td><td>${g.home + 1}B</td></tr>`;
   }
   shtml += '</tbody></table>';
   document.getElementById('scheduleTable').innerHTML = shtml;
@@ -257,7 +257,7 @@ function renderHeatmap(schedule, numTeams) {
 
   // One row per team
   for (let t = 0; t < numTeams; t++) {
-    html += `<tr><td class="team-name">Team ${t + 1}</td>`;
+    html += `<tr><td class="team-name">${t + 1}B</td>`;
     for (const date of dates) {
       const cls = teamDates[t].has(date) ? 'active' : 'inactive';
       html += `<td class="heatmap-cell ${cls}"></td>`;
