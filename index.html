@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Little League Scheduler</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<h1>Little League Scheduler</h1>
+<p class="subtitle">Generate a balanced game schedule from field availability</p>
+
+<div class="card">
+  <h2>Settings</h2>
+  <div class="row" style="margin-bottom: 1rem;">
+    <div>
+      <label for="numTeams">Number of Teams</label>
+      <input type="number" id="numTeams" min="2" max="30" value="">
+    </div>
+    <div>
+      <label for="gamesPerTeam">Games per Team</label>
+      <input type="number" id="gamesPerTeam" min="1" max="100" value="">
+    </div>
+    <div style="align-self: flex-end;">
+      <button class="btn-secondary btn-sm" onclick="loadSample()">Load Sample Data</button>
+    </div>
+  </div>
+  <label for="tsvInput">Field Availability (TSV — paste from spreadsheet or upload file)</label>
+  <div class="file-upload-row">
+    <input type="file" id="tsvFile" accept=".tsv,.csv,.txt,.xls,.xlsx" class="file-input">
+    <label for="tsvFile" class="btn-secondary btn-sm file-label">Upload File</label>
+    <span id="fileName" class="file-name"></span>
+  </div>
+  <textarea id="tsvInput" rows="8" placeholder="Date&#9;Field 1&#9;Field 2&#10;4/11/2026&#9;9:00am, 1:00pm&#9;10:00am&#10;4/12/2026&#9;10:00am&#9;..."></textarea>
+  <div class="actions">
+    <button class="btn-primary" onclick="generate()">Generate Schedule</button>
+  </div>
+</div>
+
+<div id="errorBox" class="error hidden"></div>
+<div id="statusBox" class="status hidden"></div>
+
+<div id="results" class="hidden">
+  <div class="card">
+    <h2>Constraint Scores</h2>
+    <div id="scoreGrid" class="score-grid"></div>
+  </div>
+
+  <div class="card">
+    <h2>Per-Team Summary</h2>
+    <div id="teamSummary"></div>
+  </div>
+
+  <div class="card">
+    <h2>Schedule</h2>
+    <div id="scheduleTable"></div>
+    <div class="actions">
+      <button class="btn-secondary btn-sm" onclick="downloadCSV()">Download CSV</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Team Heatmap</h2>
+    <div id="heatmap" style="overflow-x:auto;"></div>
+  </div>
+</div>
+
+<script src="scheduler.js"></script>
+<script src="annealing.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
