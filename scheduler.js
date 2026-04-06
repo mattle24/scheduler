@@ -373,6 +373,8 @@ function selectMatchupsWithLeagues(numTeams, gamesPerTeam, numWeekends) {
     }
   }
 
+  fillWeekendByes(weekendRounds, weekdayGames, numTeams);
+
   return { weekendRounds, weekdayGames };
 }
 
@@ -387,6 +389,29 @@ function validateLeagueSplit(numTeams, gamesPerTeam) {
     return `AL-NL split requires at least ${minGamesNeeded} games per team (to play every league opponent once), but only ${gamesPerTeam} configured.`;
   }
   return null;
+}
+
+// For odd team counts, each round has a bye team. Pull a game involving the
+// bye team from the weekday pool into the weekend round so every team plays
+// at least once per weekend. The opponent gets a Sat+Sun doubleheader, but
+// the builder spreads games across days to minimize that.
+function fillWeekendByes(weekendRounds, weekdayGames, numTeams) {
+  if (numTeams % 2 === 0) return;
+  for (const round of weekendRounds) {
+    const inRound = new Set();
+    for (const [a, b] of round) { inRound.add(a); inRound.add(b); }
+    for (let t = 0; t < numTeams; t++) {
+      if (inRound.has(t)) continue;
+      // t has a bye — find a weekday game involving t
+      const idx = weekdayGames.findIndex(([a, b]) => a === t || b === t);
+      if (idx !== -1) {
+        const [ga, gb] = weekdayGames.splice(idx, 1)[0];
+        round.push([ga, gb]);
+        inRound.add(ga);
+        inRound.add(gb);
+      }
+    }
+  }
 }
 
 // ─── Module 2b: Select Matchups from Tournament Rounds ──────────────────────
@@ -422,6 +447,8 @@ function selectMatchups(rounds, numTeams, gamesPerTeam, numWeekends) {
       weekdayNeeded--;
     }
   }
+
+  fillWeekendByes(weekendRounds, weekdayGames, numTeams);
 
   return { weekendRounds, weekdayGames };
 }
