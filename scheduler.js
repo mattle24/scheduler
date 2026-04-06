@@ -534,6 +534,14 @@ function assignHomeAway(games, numTeams) {
     return { home, away };
   });
 
+  // Build per-team game index for efficient lookups in repair passes
+  const teamGamesIdx = new Map();
+  for (let t = 0; t < numTeams; t++) teamGamesIdx.set(t, []);
+  for (const r of result) {
+    teamGamesIdx.get(r.home).push(r);
+    teamGamesIdx.get(r.away).push(r);
+  }
+
   // Repair pass 1: fix per-matchup imbalances (±1 max)
   for (let pass = 0; pass < 100; pass++) {
     let anyFixed = false;
@@ -545,7 +553,7 @@ function assignHomeAway(games, numTeams) {
       // Need to flip a game where the over-represented side is home
       const flipFrom = diff > 0 ? lo : hi;  // this team is home too often in this matchup
       const flipTo = diff > 0 ? hi : lo;
-      for (const r of result) {
+      for (const r of teamGamesIdx.get(flipFrom)) {
         if (r.home === flipFrom && r.away === flipTo) {
           r.home = flipTo; r.away = flipFrom;
           homeCount[flipFrom]--; awayCount[flipFrom]++;
@@ -565,7 +573,7 @@ function assignHomeAway(games, numTeams) {
     let anyFixed = false;
     for (let i = 0; i < numTeams; i++) {
       if (homeCount[i] - awayCount[i] > 1) {
-        for (const r of result) {
+        for (const r of teamGamesIdx.get(i)) {
           if (r.home === i) {
             const other = r.away;
             // Only flip if it doesn't break per-matchup balance
@@ -587,7 +595,7 @@ function assignHomeAway(games, numTeams) {
           }
         }
       } else if (awayCount[i] - homeCount[i] > 1) {
-        for (const r of result) {
+        for (const r of teamGamesIdx.get(i)) {
           if (r.away === i) {
             const other = r.home;
             const key = matchupKey(i, other);
@@ -620,6 +628,14 @@ function assignHomeAway(games, numTeams) {
 function rebalanceHomeAway(schedule, numTeams, gamesPerTeam) {
   const target = gamesPerTeam / 2;
 
+  // Build per-team game index (game objects are shared references, so flips are visible)
+  const teamGamesIdx = new Map();
+  for (let t = 0; t < numTeams; t++) teamGamesIdx.set(t, []);
+  for (const g of schedule) {
+    teamGamesIdx.get(g.home).push(g);
+    teamGamesIdx.get(g.away).push(g);
+  }
+
   // excess[t] = homeCount[t] - target; positive = too many homes
   const excess = new Array(numTeams).fill(0);
   for (const g of schedule) excess[g.home]++;
@@ -645,11 +661,11 @@ function rebalanceHomeAway(schedule, numTeams, gamesPerTeam) {
   for (let t = 0; t < numTeams; t++) {
     while (excess[t] > 0) {
       let flipped = false;
-      for (const g1 of schedule) {
+      for (const g1 of teamGamesIdx.get(t)) {
         if (g1.home !== t) continue;
         const mid = g1.away;
         if (excess[mid] < 0) continue;
-        for (const g2 of schedule) {
+        for (const g2 of teamGamesIdx.get(mid)) {
           if (g2.home !== mid) continue;
           const dest = g2.away;
           if (excess[dest] >= 0) continue;
@@ -674,6 +690,39 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
   const totalGames = games.length;
   if (slots.length < totalGames) {
     throw new Error(`Not enough slots: need ${totalGames} games but only ${slots.length} slots available.`);
+  }
+
+  // Precompute date-to-day-number map to avoid Date allocations in hot loops
+  const dateToDay = new Map();
+  for (const s of slots) {
+    if (!dateToDay.has(s.date)) {
+      dateToDay.set(s.date, Math.round(new Date(s.date + 'T00:00:00') / 86400000));
+    }
+  }
+  // Binary search for nearest day distance in a sorted array of day-numbers
+  function nearestDayDistance(sortedDays, targetDay) {
+    const arr = sortedDays;
+    if (arr.length === 0) return 14;
+    let lo = 0, hi = arr.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (arr[mid] < targetDay) lo = mid + 1;
+      else hi = mid;
+    }
+    let best = Math.abs(arr[lo] - targetDay);
+    if (lo > 0) best = Math.min(best, Math.abs(arr[lo - 1] - targetDay));
+    return Math.min(best, 14);
+  }
+
+  // Insert a value into a sorted array in order (binary search insertion)
+  function insertSorted(arr, val) {
+    let lo = 0, hi = arr.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (arr[mid] < val) lo = mid + 1;
+      else hi = mid;
+    }
+    arr.splice(lo, 0, val);
   }
 
   // Hard constraint: max 1 game per team in the last 5 days of the season
@@ -751,12 +800,14 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
     const schedule = [];
     const taken = new Set();
     const teamDay = new Map();
+    const teamDaySorted = new Map(); // sorted arrays of day-numbers per team
     const teamWeekend = new Map();
     const teamWeek = new Map();
     const teamField = new Map();
     const lastGameDate = new Map();
     for (let t = 0; t < numTeams; t++) {
       teamDay.set(t, new Set());
+      teamDaySorted.set(t, []);
       teamWeekend.set(t, new Map());
       teamWeek.set(t, new Map());
       teamField.set(t, new Map());
@@ -764,6 +815,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
     const teamEndGames = new Map(); // games per team in last 5 days
     for (let t = 0; t < numTeams; t++) teamEndGames.set(t, 0);
     let failed = false;
+    let runningPenalty = 0; // running estimate of penalties for early exit
 
     // Shuffle which rounds go to which weekends
     const roundOrder = shuffle([...Array(weekendRounds.length).keys()]);
@@ -815,7 +867,19 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
 
         taken.add(bestSlot.sortKey);
         dateGameCount.set(bestSlot.date, (dateGameCount.get(bestSlot.date) || 0) + 1);
-        recordAssignment(schedule, bestSlot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff);
+        recordAssignment(schedule, bestSlot, home, away, teamDay, teamDaySorted, teamWeekend, teamWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff, dateToDay, insertSorted);
+
+        // Track weekend double-headers for early exit
+        if (bestSlot.weekendGroup) {
+          for (const t of [home, away]) {
+            const wgCount = teamWeekend.get(t).get(bestSlot.weekendGroup) || 0;
+            if (wgCount > 1) {
+              // This game just created (or added to) a double-header
+              runningPenalty += WEIGHTS.weekendDoubleHeaders;
+            }
+          }
+        }
+        if (runningPenalty > bestScore) { failed = true; break; }
       }
       if (failed) return;
     }
@@ -847,22 +911,10 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
         let score = 0;
         // For each team, find the minimum absolute distance from this slot
         // to any existing game date — prefer slots in the biggest schedule gaps
-        const homeDates = teamDay.get(home);
-        const awayDates = teamDay.get(away);
-        if (homeDates.size > 0) {
-          let minDist = Infinity;
-          for (const d of homeDates) minDist = Math.min(minDist, Math.abs(daysBetween(d, s.date)));
-          score += Math.min(minDist, 14);
-        } else {
-          score += 14;
-        }
-        if (awayDates.size > 0) {
-          let minDist = Infinity;
-          for (const d of awayDates) minDist = Math.min(minDist, Math.abs(daysBetween(d, s.date)));
-          score += Math.min(minDist, 14);
-        } else {
-          score += 14;
-        }
+        // Uses binary search on sorted day-number arrays for O(log n) lookup
+        const slotDay = dateToDay.get(s.date);
+        score += nearestDayDistance(teamDaySorted.get(home), slotDay);
+        score += nearestDayDistance(teamDaySorted.get(away), slotDay);
 
         const hWeekCount = teamWeek.get(home).get(s.week) || 0;
         const aWeekCount = teamWeek.get(away).get(s.week) || 0;
@@ -881,7 +933,35 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
       }
 
       taken.add(bestSlot.sortKey);
-      recordAssignment(schedule, bestSlot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff);
+      recordAssignment(schedule, bestSlot, home, away, teamDay, teamDaySorted, teamWeekend, teamWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff, dateToDay, insertSorted);
+
+      // Early exit: detect weekday back-to-back (gap=1 between weekday games)
+      const slotDayNum = dateToDay.get(bestSlot.date);
+      const slotDow = new Date(bestSlot.date + 'T00:00:00').getDay();
+      const slotIsWeekday = slotDow >= 1 && slotDow <= 5;
+      if (slotIsWeekday) {
+        for (const t of [home, away]) {
+          const sorted = teamDaySorted.get(t);
+          // Binary search for position of slotDayNum
+          let lo = 0, hi = sorted.length - 1;
+          while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (sorted[mid] < slotDayNum) lo = mid + 1;
+            else if (sorted[mid] > slotDayNum) hi = mid - 1;
+            else { lo = mid; break; }
+          }
+          // Check neighbor gaps of 1 with weekday day-of-week
+          if (lo > 0 && sorted[lo] - sorted[lo - 1] === 1) {
+            const prevDow = (slotDow + 6) % 7; // day before
+            if (prevDow >= 1 && prevDow <= 5) runningPenalty += WEIGHTS.weekdayBackToBack;
+          }
+          if (lo < sorted.length - 1 && sorted[lo + 1] - sorted[lo] === 1) {
+            const nextDow = (slotDow + 1) % 7;
+            if (nextDow >= 1 && nextDow <= 5) runningPenalty += WEIGHTS.weekdayBackToBack;
+          }
+        }
+      }
+      if (runningPenalty > bestScore) { failed = true; break; }
     }
 
     if (failed) return;
@@ -955,9 +1035,12 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
 }
 
 // Helper to record a game assignment and update tracking structures
-function recordAssignment(schedule, slot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff) {
+function recordAssignment(schedule, slot, home, away, teamDay, teamDaySorted, teamWeekend, teamWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff, dateToDay, insertSorted) {
   teamDay.get(home).add(slot.date);
   teamDay.get(away).add(slot.date);
+  const dayNum = dateToDay.get(slot.date);
+  insertSorted(teamDaySorted.get(home), dayNum);
+  insertSorted(teamDaySorted.get(away), dayNum);
   if (slot.weekendGroup) {
     const hwm = teamWeekend.get(home);
     hwm.set(slot.weekendGroup, (hwm.get(slot.weekendGroup) || 0) + 1);
@@ -1008,11 +1091,23 @@ function scoreDetails(schedule, numTeams, allSlots) {
     teamGames.get(g.away).push(g);
   }
 
+  const teamSortedDates = new Map();
+  for (let t = 0; t < numTeams; t++) {
+    teamSortedDates.set(t, teamGames.get(t).map(g => g.date).sort());
+  }
+
   const activeWeekends = new Set();
   for (const s of allSlots) {
     if (s.weekendGroup) activeWeekends.add(s.weekendGroup);
   }
   const numActiveWeekends = activeWeekends.size;
+
+  const activeBuckets = new Set();
+  for (const s of allSlots) activeBuckets.add(slotBucket(s.dayOfWeek, s.time));
+
+  const activeFields = new Set();
+  for (const s of allSlots) activeFields.add(s.field);
+  const numFields = activeFields.size;
 
   const weekdaySlotCount = allSlots.filter(s => !s.weekendGroup).length;
 
@@ -1051,7 +1146,7 @@ function scoreDetails(schedule, numTeams, allSlots) {
 
   let gapVariance = 0;
   for (let t = 0; t < numTeams; t++) {
-    const dates = teamGames.get(t).map(g => g.date).sort();
+    const dates = teamSortedDates.get(t);
     if (dates.length < 2) continue;
     const gaps = [];
     for (let i = 1; i < dates.length; i++) {
@@ -1067,7 +1162,7 @@ function scoreDetails(schedule, numTeams, allSlots) {
   let weekdayBackToBack = 0;
   let crossBoundaryBTB = 0;
   for (let t = 0; t < numTeams; t++) {
-    const dates = teamGames.get(t).map(g => g.date).sort();
+    const dates = teamSortedDates.get(t);
     for (let i = 1; i < dates.length; i++) {
       const gap = daysBetween(dates[i - 1], dates[i]);
       if (gap > 0) shortGapPenalty += 1 / gap;
@@ -1089,8 +1184,6 @@ function scoreDetails(schedule, numTeams, allSlots) {
   // Time-slot distribution: variance of bucket counts per team
   // Buckets: WE_MORN, WE_AFT, MON, TUE, WED, THU, FRI
   // Only count buckets that actually have slots available
-  const activeBuckets = new Set();
-  for (const s of allSlots) activeBuckets.add(slotBucket(s.dayOfWeek, s.time));
 
   let timeDistribution = 0;
   for (let t = 0; t < numTeams; t++) {
@@ -1106,10 +1199,6 @@ function scoreDetails(schedule, numTeams, allSlots) {
   }
 
   // Field balance: variance of field counts per team
-  const activeFields = new Set();
-  for (const s of allSlots) activeFields.add(s.field);
-  const numFields = activeFields.size;
-
   let fieldBalance = 0;
   if (numFields > 1) {
     for (let t = 0; t < numTeams; t++) {
@@ -1127,7 +1216,7 @@ function scoreDetails(schedule, numTeams, allSlots) {
   // 5-day rolling window density: penalize 3+ games in any 5-day window
   let rollingDensity = 0;
   for (let t = 0; t < numTeams; t++) {
-    const dates = teamGames.get(t).map(g => g.date).sort();
+    const dates = teamSortedDates.get(t);
     for (let i = 0; i < dates.length; i++) {
       let count = 1;
       for (let j = i + 1; j < dates.length; j++) {
@@ -1143,7 +1232,7 @@ function scoreDetails(schedule, numTeams, allSlots) {
   const sixDayPenalties = [0, 0, 0, 4, 12, 20];
   let sixDayDensity = 0;
   for (let t = 0; t < numTeams; t++) {
-    const dates = teamGames.get(t).map(g => g.date).sort();
+    const dates = teamSortedDates.get(t);
     for (let i = 0; i < dates.length; i++) {
       let count = 1;
       for (let j = i + 1; j < dates.length; j++) {
