@@ -95,3 +95,55 @@ When a division's "AL/NL" checkbox is enabled:
 ## Glossary
 
 - "divisions" are age groups. These are akin to MLB / AAA / AA / etc.
+
+## Advanced Scheduler Explanation
+
+### Matchup Generation
+
+The core uses the **circle method** for round-robin tournaments (scheduler.js:204-237): fix team 0, rotate teams 1..n-1. For odd team counts, a dummy team is added and its pairings become byes. This produces `n-1` rounds of `floor(n/2)` games each — a perfect 1-factorization of K_n.
+
+Rounds are cycled to reach `totalGames = numTeams * gamesPerTeam / 2`. The first `numWeekends` rounds become weekend rounds (preserving their structure as perfect matchings so no team double-books on a weekend). Remaining games are flattened into a weekday pool.
+
+For **AL/NL league splits** (scheduler.js:245-379), matchup generation uses a layered fill: intra-league rounds (circle algorithm on each sub-league, merged since they're disjoint) alternate with inter-league rounds (bipartite round-robin: `AL[i] vs NL[(i+r) % nlSize]`). Excess games are trimmed by greedily removing pairs where both teams have the highest game counts. The result is re-grouped into valid matchings via greedy set-packing.
+
+### Home/Away Assignment
+
+`assignHomeAway` uses a two-priority system: per-matchup balance (has team A hosted team B more than vice versa?) takes precedence over overall balance (does team A have too many home games total?). Two repair passes follow — pass 1 fixes per-matchup imbalances beyond ±1, pass 2 fixes overall team imbalances beyond ±1. A post-hoc `rebalanceHomeAway` does a greedy flip pass plus a 2-hop chain pass through intermediate teams at excess 0.
+
+### Greedy Builder
+
+`tryBuildSchedule` runs 200 attempts with randomized round-to-weekend mappings and shuffled weekday game order. Each attempt:
+
+- **Phase 1 (weekends)**: For each weekend group, assigns shuffled round games to eligible slots. Slot selection scores by: `-dateGameCount` (spread across Sat/Sun) and `-teamFieldCount * 0.3` (field balance), plus random jitter.
+- **Phase 2 (weekdays)**: Greedy slot selection scores by: `min distance to nearest existing game` (fill gaps), `-weekCount * 5` (avoid clustering in one week), `-teamFieldCount * 2` (field balance), plus jitter.
+
+Hard constraints are checked inline via `hasConsecutiveDays`, `hasEarlySeasonConflict`, and end-of-season limits. If no eligible slot exists for a weekday game, the attempt fails.
+
+### Scoring Function
+
+`scoreDetails` computes 10 penalty metrics, each multiplied by a user-adjustable weight:
+
+| Metric | What it measures |
+|---|---|
+| `weekendSitouts` | Weekends where a team has 0 games (forgives unavoidable sitouts) |
+| `weekendDoubleHeaders` | Extra games beyond 1 per team per Sat-Sun pair |
+| `weekdayBackToBack` | Consecutive weekday games (Mon+Tue, etc.) |
+| `crossBoundaryBTB` | Fri→Sat or Sun→Mon back-to-backs |
+| `gapVariance` | Sum of per-team std dev of inter-game gaps |
+| `rollingDensity` | 5-day window: `(count-2)^2` for 3+ games |
+| `sixDayDensity` | 6-day window: explicit penalty table (3→4, 4→12, 5→20) |
+| `shortGapPenalty` | Sum of `1/gap` for all consecutive game pairs |
+| `timeDistribution` | Variance of time-bucket counts per team |
+| `fieldBalance` | Variance of field-assignment counts per team |
+
+### Simulated Annealing
+
+`anneal` runs `max(5000, numGames * 80)` iterations with linear cooling from `T_start = 0.3 * initialScore`. Two move types with 50/50 probability:
+
+- **Swap**: Exchange the slot properties (date/time/field) of two random games. `usedSlots` is invariant.
+- **Relocate**: Move a random game to a random unused slot (up to 20 rejection-sampling attempts). Updates `usedSlots`.
+
+Both moves check hard constraints on only the affected teams (2 or 4), then accept via the Metropolis criterion: `delta < 0` or `random() < exp(-delta / T)`. The best-ever schedule is tracked separately from the current state.
+
+Execution is chunked into batches of 500 with `setTimeout(0)` yields to keep the UI responsive, with progress callbacks for the progress bar.
+
