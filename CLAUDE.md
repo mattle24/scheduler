@@ -1,19 +1,29 @@
 # Agent Context: Little League Scheduler
 
 ## Overview
-Browser-based little league baseball/softball scheduler. No server, no build tools — plain JS/CSS/HTML. Generates an optimized game schedule from team count, games-per-team, and a TSV field-availability matrix.
+Browser-based little league baseball/softball scheduler. No server, no build tools — plain JS/CSS/HTML. Generates optimized game schedules for one or more divisions from a TSV field-availability matrix. Each division has its own team count, games-per-team, and set of valid fields.
 
 Whenever you make a change, check whether you need to update CLAUDE.md (this file) to keep it correct and up to date.
 
 ## Files
 - **scheduler.js** (~1100 lines) — Core engine: TSV parsing, round-robin tournament generation, matchup selection (standard + AL/NL league-aware), home/away assignment, greedy schedule builder, scoring/penalty system
 - **annealing.js** (~230 lines) — Simulated annealing optimizer: swap and relocate moves with hard constraint checks (same-day conflict, 3-consecutive-day limit)
-- **ui.js** (~320 lines) — UI rendering: score cards, per-team summary table, schedule table, heatmap, CSV export, penalty weight sync
-- **index.html** — Minimal shell with input form and result sections. Loads: styles.css, scheduler.js, annealing.js, ui.js
+- **ui.js** (~370 lines) — Division management UI, multi-division generate loop, per-division rendering (score cards, team summary, schedule table, heatmap), CSV export, penalty weight sync
+- **index.html** — Minimal shell with division table, TSV input, penalty weights, and dynamic results container. Loads: styles.css, scheduler.js, annealing.js, ui.js
 - **styles.css** — All styling including CSS-only tooltips and heatmap
 
 ## Architecture / Pipeline
-1. `buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options)` (entry point in scheduler.js, called from ui.js `generate()`)
+
+### Multi-Division Loop (ui.js `generate()`)
+Divisions are scheduled sequentially in row order (priority order). For each division:
+1. Filter `allSlots` to the division's valid fields, excluding slots already claimed by higher-priority divisions
+2. Run the single-division pipeline (below) with filtered slots
+3. Add scheduled game slot keys to `claimedKeys` set
+
+Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely identifies each slot.
+
+### Single-Division Pipeline (scheduler.js)
+1. `buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options)` (entry point)
    - `options.leagueSplit` — when true, uses AL/NL league-aware matchup selection
 2. `generateTournamentRounds()` — circle/polygon algorithm, produces perfect matchings
 3. `selectMatchups()` — splits rounds into weekend (full rounds) and weekday (remainder)
@@ -25,12 +35,14 @@ Whenever you make a change, check whether you need to update CLAUDE.md (this fil
 ## Key Data Structures
 - **Slot**: `{ date, dayOfWeek, weekendGroup, week, field, time, sortKey }`
 - **Game**: `{ date, dayOfWeek, time, field, home, away }` (home/away are 0-indexed team IDs)
+- **Division config**: `{ name, numTeams, gamesPerTeam, leagueSplit, fields: string[] }` — read from UI division table
+- **Division result**: `{ division, schedule, details, greedyDetails, slots }` — collected per-division after scheduling
 - **teamDay**: `Map<teamId, Set<dateStrings>>` — tracks which dates each team plays
 - **WEIGHTS**: global object with penalty weights, synced from UI inputs before each run
 
 ## Scoring System (scoreCandidate / scoreDetails)
 Weighted sum of penalties. Current weights in `WEIGHTS` global:
-- weekendSitouts (12) — team has zero games on a weekend with available slots
+- weekendSitouts (12) — team has zero games on a weekend with available slots; if a team has fewer total games than weekends, that many sitouts are forgiven
 - weekdayBackToBack (10) — consecutive weekday games (Mon+Tue, etc.)
 - weekendDoubleHeaders (8) — 2+ games in same Sat-Sun weekend
 - crossBoundaryBTB (7) — Fri-Sat or Sun-Mon back-to-back
@@ -53,8 +65,17 @@ Show hard constraints in the UI in the penalty weights section.
 - In the last 5 days of the season, each team plays at most 1 game (`endOfSeasonCutoff`)
 - AL/NL split: each team plays every intra-league opponent at least once (`validateLeagueSplit`)
 
-## AL/NL League Split (optional)
-When "Split into AL / NL" checkbox is enabled:
+## Multi-Division Scheduling
+- User defines divisions in a table: name, team count, games/team, AL/NL split, valid fields
+- Field checkboxes populate after TSV is pasted/uploaded (parsed from header row)
+- A field can be valid for multiple divisions; divisions compete for shared slots
+- Priority = row order in the table; first division gets first pick of slots
+- Each division is scored/optimized independently
+- Results render per-division: each gets its own score cards, team summary, schedule table, heatmap
+- CSV export includes a "Division" column
+
+## AL/NL League Split (optional, per-division)
+When a division's "AL/NL" checkbox is enabled:
 - AL = teams 0..floor(n/2)-1, NL = teams floor(n/2)..n-1 (odd count → NL gets extra)
 - Matchup fill order (layered): intra-league layer → inter-league layer → repeat
 - Intra-league rounds generated via circle algorithm on each sub-league
@@ -70,3 +91,7 @@ When "Split into AL / NL" checkbox is enabled:
 - Team IDs are 0-indexed internally, displayed as "{n}B" (e.g. "1B", "2B")
 - Weekend grouping: keyed by Saturday's date string (Sun maps to preceding Sat)
 - ISO week: keyed by Monday's date string
+
+## Glossary
+
+- "divisions" are age groups. These are akin to MLB / AAA / AA / etc.
