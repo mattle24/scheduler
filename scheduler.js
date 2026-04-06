@@ -1228,8 +1228,8 @@ function scoreDetails(schedule, numTeams, allSlots) {
   }
 
   // 6-day rolling window: explicit penalties for 3+ games
-  // 3 games: 4, 4 games: 12, 5 games: 20
-  const sixDayPenalties = [0, 0, 0, 4, 12, 20];
+  // 3 games: 8, 4 games: 12, 5 games: 20
+  const sixDayPenalties = [0, 0, 0, 8, 12, 20];
   let sixDayDensity = 0;
   for (let t = 0; t < numTeams; t++) {
     const dates = teamSortedDates.get(t);
