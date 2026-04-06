@@ -45,6 +45,7 @@ Users can adjust all weights via collapsible "Penalty Weights" panel in Settings
 - No team plays twice on the same day
 - No team plays 3+ consecutive calendar days (`hasConsecutiveDays` / `teamHasConsecutiveDays`)
 - In the first 10 days of the season, no team can have games within 2 days of each other (`hasEarlySeasonConflict` / `teamHasEarlySeasonConflict`)
+- In the last 5 days of the season, each team plays at most 1 game (`endOfSeasonCutoff`)
 
 ## Known Issues
 - None

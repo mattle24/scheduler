@@ -41,6 +41,15 @@
     <div id="penaltyWeights" class="penalty-body hidden">
       <p class="penalty-hint">Controls how much the optimizer cares about each rule. Higher = stronger priority. Set to 0 to ignore a rule.</p>
       <div class="penalty-grid" id="penaltyGrid"></div>
+      <div class="hard-constraints">
+        <p class="hard-constraints-title">Hard Constraints (always enforced)</p>
+        <ul>
+          <li>No team plays twice on the same day</li>
+          <li>No team plays 3+ consecutive calendar days</li>
+          <li>In the first 10 days, no team plays within 2 days of each other</li>
+          <li>In the last 5 days, each team plays at most 1 game</li>
+        </ul>
+      </div>
     </div>
   </div>
   <div class="actions">
