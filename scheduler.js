@@ -259,31 +259,77 @@ function generateMatchups(numTeams, gamesPerTeam) {
 function assignHomeAway(games, numTeams) {
   const homeCount = new Array(numTeams).fill(0);
   const awayCount = new Array(numTeams).fill(0);
+  // Per-matchup tracking: key "min,max" → { home: count where min is home, away: count where min is away }
+  const matchupHA = new Map();
+  function matchupKey(a, b) { return Math.min(a, b) + ',' + Math.max(a, b); }
 
   const result = games.map(g => {
     let home, away;
-    const aNet = homeCount[g.teamA] - awayCount[g.teamA];
-    const bNet = homeCount[g.teamB] - awayCount[g.teamB];
+    const key = matchupKey(g.teamA, g.teamB);
+    const mh = matchupHA.get(key) || { home: 0, away: 0 };
 
-    if (aNet < bNet) {
-      home = g.teamA; away = g.teamB;
-    } else if (bNet < aNet) {
-      home = g.teamB; away = g.teamA;
+    // Priority 1: per-matchup balance (min team as home vs away)
+    const lo = Math.min(g.teamA, g.teamB);
+    const hi = Math.max(g.teamA, g.teamB);
+    const loAsHomeCount = mh.home;  // times lo was home
+    const loAsAwayCount = mh.away;  // times lo was away
+
+    if (loAsHomeCount < loAsAwayCount) {
+      home = lo; away = hi;
+    } else if (loAsAwayCount < loAsHomeCount) {
+      home = hi; away = lo;
     } else {
-      if (Math.random() < 0.5) {
+      // Matchup is balanced — use overall balance as tiebreaker
+      const aNet = homeCount[g.teamA] - awayCount[g.teamA];
+      const bNet = homeCount[g.teamB] - awayCount[g.teamB];
+      if (aNet < bNet) {
         home = g.teamA; away = g.teamB;
-      } else {
+      } else if (bNet < aNet) {
         home = g.teamB; away = g.teamA;
+      } else {
+        if (Math.random() < 0.5) {
+          home = g.teamA; away = g.teamB;
+        } else {
+          home = g.teamB; away = g.teamA;
+        }
       }
     }
 
     homeCount[home]++;
     awayCount[away]++;
+    if (home === lo) mh.home++;
+    else mh.away++;
+    matchupHA.set(key, mh);
     return { home, away };
   });
 
-  // Repair pass: swap home/away on games until every team is within ±1
-  // Cap iterations to prevent infinite loops
+  // Repair pass 1: fix per-matchup imbalances (±1 max)
+  for (let pass = 0; pass < 100; pass++) {
+    let anyFixed = false;
+    for (const [key, mh] of matchupHA) {
+      const diff = mh.home - mh.away;
+      if (Math.abs(diff) <= 1) continue;
+      const [loStr, hiStr] = key.split(',');
+      const lo = +loStr, hi = +hiStr;
+      // Need to flip a game where the over-represented side is home
+      const flipFrom = diff > 0 ? lo : hi;  // this team is home too often in this matchup
+      const flipTo = diff > 0 ? hi : lo;
+      for (const r of result) {
+        if (r.home === flipFrom && r.away === flipTo) {
+          r.home = flipTo; r.away = flipFrom;
+          homeCount[flipFrom]--; awayCount[flipFrom]++;
+          homeCount[flipTo]++; awayCount[flipTo]--;
+          if (diff > 0) { mh.home--; mh.away++; }
+          else { mh.away--; mh.home++; }
+          anyFixed = true;
+          break;
+        }
+      }
+    }
+    if (!anyFixed) break;
+  }
+
+  // Repair pass 2: fix overall team H/A balance (±1 max)
   for (let pass = 0; pass < 100; pass++) {
     let anyFixed = false;
     for (let i = 0; i < numTeams; i++) {
@@ -291,10 +337,19 @@ function assignHomeAway(games, numTeams) {
         for (const r of result) {
           if (r.home === i) {
             const other = r.away;
+            // Only flip if it doesn't break per-matchup balance
+            const key = matchupKey(i, other);
+            const mh = matchupHA.get(key);
+            const lo = Math.min(i, other);
+            const curDiff = mh.home - mh.away; // lo-as-home minus lo-as-away
+            const wouldFlip = i === lo ? -1 : 1; // change to curDiff if we flip
+            if (Math.abs(curDiff + wouldFlip * 2) > 2) continue;
             if (homeCount[other] - awayCount[other] < 1) {
               r.home = other; r.away = i;
               homeCount[i]--; awayCount[i]++;
               homeCount[other]++; awayCount[other]--;
+              if (i === lo) { mh.home--; mh.away++; }
+              else { mh.away--; mh.home++; }
               anyFixed = true;
               break;
             }
@@ -304,10 +359,18 @@ function assignHomeAway(games, numTeams) {
         for (const r of result) {
           if (r.away === i) {
             const other = r.home;
+            const key = matchupKey(i, other);
+            const mh = matchupHA.get(key);
+            const lo = Math.min(i, other);
+            const curDiff = mh.home - mh.away;
+            const wouldFlip = i === lo ? 1 : -1;
+            if (Math.abs(curDiff + wouldFlip * 2) > 2) continue;
             if (awayCount[other] - homeCount[other] < 1) {
               r.away = other; r.home = i;
               awayCount[i]--; homeCount[i]++;
               awayCount[other]++; homeCount[other]--;
+              if (i === lo) { mh.home++; mh.away--; }
+              else { mh.away++; mh.home--; }
               anyFixed = true;
               break;
             }
@@ -317,6 +380,7 @@ function assignHomeAway(games, numTeams) {
     }
     if (!anyFixed) break;
   }
+
 
   return result;
 }
@@ -397,11 +461,13 @@ function tryBuildSchedule(games, slots, numTeams) {
     const teamDay = new Map();
     const teamWeekend = new Map();
     const teamWeek = new Map();
+    const teamField = new Map();
     const lastGameDate = new Map();
     for (let t = 0; t < numTeams; t++) {
       teamDay.set(t, new Set());
       teamWeekend.set(t, new Map());
       teamWeek.set(t, new Map());
+      teamField.set(t, new Map());
     }
     let failed = false;
 
@@ -437,18 +503,21 @@ function tryBuildSchedule(games, slots, numTeams) {
           if (fallback.length === 0) { failed = true; break; }
           bestSlot = fallback[Math.floor(Math.random() * fallback.length)];
         } else {
-          // Spread across Sat and Sun using O(1) counter
+          // Spread across Sat and Sun, prefer underused fields
           let bestScore = -Infinity;
           bestSlot = eligible[0];
           for (const s of eligible) {
-            let score = -(dateGameCount.get(s.date) || 0) + Math.random() * 0.5;
+            let score = -(dateGameCount.get(s.date) || 0);
+            score -= (teamField.get(home).get(s.field) || 0) * 0.3;
+            score -= (teamField.get(away).get(s.field) || 0) * 0.3;
+            score += Math.random() * 0.3;
             if (score > bestScore) { bestScore = score; bestSlot = s; }
           }
         }
 
         taken.add(bestSlot.sortKey);
         dateGameCount.set(bestSlot.date, (dateGameCount.get(bestSlot.date) || 0) + 1);
-        recordAssignment(schedule, bestSlot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate);
+        recordAssignment(schedule, bestSlot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate, teamField);
       }
       if (failed) break;
     }
@@ -497,6 +566,10 @@ function tryBuildSchedule(games, slots, numTeams) {
         const aWeekCount = teamWeek.get(away).get(s.week) || 0;
         score -= (hWeekCount + aWeekCount) * 5;
 
+        // Prefer underused fields for both teams
+        score -= (teamField.get(home).get(s.field) || 0) * 2;
+        score -= (teamField.get(away).get(s.field) || 0) * 2;
+
         score += Math.random() * 0.5;
 
         if (score > bestSlotScore) {
@@ -506,7 +579,7 @@ function tryBuildSchedule(games, slots, numTeams) {
       }
 
       taken.add(bestSlot.sortKey);
-      recordAssignment(schedule, bestSlot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate);
+      recordAssignment(schedule, bestSlot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate, teamField);
     }
 
     if (failed) continue;
@@ -527,14 +600,30 @@ function tryBuildSchedule(games, slots, numTeams) {
 
 // Entry point called by ui.js — handles matchup generation, H/A, and scheduling in one call
 function buildSchedule(numTeams, gamesPerTeam, slots) {
-  const rawGames = generateMatchups(numTeams, gamesPerTeam);
-  const haGames = assignHomeAway(rawGames, numTeams);
+  // Determine weekend count from slots so selectMatchups uses the same pairs as scheduling
+  const weekendGroupSet = new Set();
+  for (const s of slots) {
+    if (s.weekendGroup) weekendGroupSet.add(s.weekendGroup);
+  }
+  const numWeekends = weekendGroupSet.size;
+
+  const rounds = generateTournamentRounds(numTeams);
+  const { weekendRounds, weekdayGames } = selectMatchups(rounds, numTeams, gamesPerTeam, numWeekends);
+
+  // Flatten the actual selected pairs, then assign H/A on exactly those pairs
+  const allPairs = [];
+  for (const round of weekendRounds) {
+    for (const pair of round) allPairs.push({ teamA: pair[0], teamB: pair[1] });
+  }
+  for (const pair of weekdayGames) allPairs.push({ teamA: pair[0], teamB: pair[1] });
+
+  const haGames = assignHomeAway(allPairs, numTeams);
   const games = haGames.map(g => ({ home: g.home, away: g.away }));
   return tryBuildSchedule(games, slots, numTeams);
 }
 
 // Helper to record a game assignment and update tracking structures
-function recordAssignment(schedule, slot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate) {
+function recordAssignment(schedule, slot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate, teamField) {
   teamDay.get(home).add(slot.date);
   teamDay.get(away).add(slot.date);
   if (slot.weekendGroup) {
@@ -549,6 +638,12 @@ function recordAssignment(schedule, slot, home, away, teamDay, teamWeekend, team
   awk.set(slot.week, (awk.get(slot.week) || 0) + 1);
   lastGameDate.set(home, slot.date);
   lastGameDate.set(away, slot.date);
+  if (teamField) {
+    const hf = teamField.get(home);
+    hf.set(slot.field, (hf.get(slot.field) || 0) + 1);
+    const af = teamField.get(away);
+    af.set(slot.field, (af.get(slot.field) || 0) + 1);
+  }
 
   schedule.push({
     date: slot.date,
@@ -564,7 +659,7 @@ function recordAssignment(schedule, slot, home, away, teamDay, teamWeekend, team
 function scoreCandidate(schedule, numTeams, slots) {
   const d = scoreDetails(schedule, numTeams, slots);
   return d.weekendSitouts * 12 + d.weekdayBackToBack * 10 + d.weekendDoubleHeaders * 8 + d.crossBoundaryBTB * 7 + d.gapVariance * 6
-    + d.rollingDensity * 5 + d.weeklyClumps * 4 + d.shortGapPenalty * 3 + d.timeDistribution * 3 + d.fieldBalance * 4;
+    + d.rollingDensity * 5 + d.sixDayDensity * 5 + d.weeklyClumps * 4 + d.shortGapPenalty * 3 + d.timeDistribution * 3 + d.fieldBalance * 4;
 }
 
 function scoreDetails(schedule, numTeams, allSlots) {
@@ -720,10 +815,26 @@ function scoreDetails(schedule, numTeams, allSlots) {
     }
   }
 
+  // 6-day rolling window: explicit penalties for 3+ games
+  // 3 games: 4, 4 games: 12, 5 games: 20
+  const sixDayPenalties = [0, 0, 0, 4, 12, 20];
+  let sixDayDensity = 0;
+  for (let t = 0; t < numTeams; t++) {
+    const dates = teamGames.get(t).map(g => g.date).sort();
+    for (let i = 0; i < dates.length; i++) {
+      let count = 1;
+      for (let j = i + 1; j < dates.length; j++) {
+        if (daysBetween(dates[i], dates[j]) <= 5) count++;
+        else break;
+      }
+      if (count >= 3) sixDayDensity += count < sixDayPenalties.length ? sixDayPenalties[count] : sixDayPenalties[5] + (count - 5) * 20;
+    }
+  }
+
   return {
     weekendSitouts, weekendDoubleHeaders, gapVariance: Math.round(gapVariance * 100) / 100,
     weeklyClumps, weekdayBackToBack, crossBoundaryBTB, shortGapPenalty: Math.round(shortGapPenalty * 100) / 100,
-    rollingDensity,
+    rollingDensity, sixDayDensity,
     timeDistribution: Math.round(timeDistribution * 100) / 100,
     fieldBalance: Math.round(fieldBalance * 100) / 100,
     minWeekendDH, minWeeklyClumps

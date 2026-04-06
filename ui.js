@@ -40,7 +40,7 @@ function generate() {
   document.getElementById('results').classList.add('hidden');
   const statusBox = document.getElementById('statusBox');
   statusBox.classList.remove('hidden');
-  statusBox.innerHTML = 'Generating schedule...';
+  statusBox.innerHTML = 'Phase 1: Building schedule...';
 
   setTimeout(() => {
     try {
@@ -53,9 +53,6 @@ function generate() {
       if (!tsvText.trim()) throw new Error('Please enter field availability data');
 
       const slots = parseTSV(tsvText);
-
-      // Phase 1: Build schedule
-      statusBox.innerHTML = 'Phase 1: Building schedule...';
       const result = buildSchedule(numTeams, gamesPerTeam, slots);
 
       // Phase 2: Simulated annealing refinement
