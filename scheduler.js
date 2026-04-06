@@ -5,14 +5,27 @@ const NUM_ATTEMPTS = 200;
 const WEIGHTS = {
   weekendSitouts: 12,
   weekdayBackToBack: 10,
-  weekendDoubleHeaders: 8,
+  weekendDoubleHeaders: 5,
   crossBoundaryBTB: 7,
   gapVariance: 6,
-  rollingDensity: 5,
-  sixDayDensity: 5,
+  rollingDensity: 9,
+  sixDayDensity: 10,
   shortGapPenalty: 3,
   timeDistribution: 3,
   fieldBalance: 4
+};
+
+const WEIGHT_LABELS = {
+  weekendSitouts: 'Weekend Sit-outs (no games in a weekend)',
+  weekdayBackToBack: 'Weekday Back-to-Back',
+  weekendDoubleHeaders: 'Weekend Back-to-Back',
+  crossBoundaryBTB: 'Fri/Sat or Sun/Mon Back-to-Back',
+  gapVariance: 'Gap Variance (difference time between games across teams)',
+  rollingDensity: '5-Day Density (don\'t have too many games within 5 days)',
+  sixDayDensity: '6-Day Density (don\'t have too many games within 6 days)',
+  shortGapPenalty: 'Short Gap Penalty',
+  timeDistribution: 'Time Distribution',
+  fieldBalance: 'Field Balance (teams play even games at each field)'
 };
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -97,6 +110,31 @@ function addDays(dateString, n) {
   const d = new Date(dateString + 'T00:00:00');
   d.setDate(d.getDate() + n);
   return dateStr(d);
+}
+
+// Returns true if adding newDate in the first 10 days of the season would
+// place a game within 2 days of an existing game for this team.
+function hasEarlySeasonConflict(teamDaySet, newDate, seasonStartDate) {
+  var cutoff = addDays(seasonStartDate, 9); // first 10 days inclusive
+  if (newDate > cutoff) return false;
+  var d1 = addDays(newDate, -1), d2 = addDays(newDate, -2);
+  var d3 = addDays(newDate, 1), d4 = addDays(newDate, 2);
+  if (teamDaySet.has(d1) && d1 >= seasonStartDate && d1 <= cutoff) return true;
+  if (teamDaySet.has(d2) && d2 >= seasonStartDate && d2 <= cutoff) return true;
+  if (teamDaySet.has(d3) && d3 >= seasonStartDate && d3 <= cutoff) return true;
+  if (teamDaySet.has(d4) && d4 >= seasonStartDate && d4 <= cutoff) return true;
+  return false;
+}
+
+// Returns true if a sorted array of dates contains any pair within 2 days
+// during the first 10 days of the season.
+function teamHasEarlySeasonConflict(datesArray, seasonStartDate) {
+  var cutoff = addDays(seasonStartDate, 9);
+  var early = datesArray.filter(function(d) { return d >= seasonStartDate && d <= cutoff; }).sort();
+  for (var i = 0; i + 1 < early.length; i++) {
+    if (daysBetween(early[i], early[i + 1]) <= 2) return true;
+  }
+  return false;
 }
 
 // Returns true if adding newDate to a team's date set would create 3 consecutive game days
@@ -452,11 +490,17 @@ function rebalanceHomeAway(schedule, numTeams, gamesPerTeam) {
 }
 
 // ─── Module 4: Build Schedule (Round-Robin Tournament Approach) ─────────────
-function tryBuildSchedule(games, slots, numTeams) {
+function tryBuildSchedule(games, slots, numTeams, onProgress) {
   const totalGames = games.length;
   if (slots.length < totalGames) {
     throw new Error(`Not enough slots: need ${totalGames} games but only ${slots.length} slots available.`);
   }
+
+  // Hard constraint: max 1 game per team in the last 5 days of the season
+  const allDates = [...new Set(slots.map(s => s.date))].sort();
+  const seasonStartDate = allDates[0];
+  const seasonEndDate = allDates[allDates.length - 1];
+  const endOfSeasonCutoff = addDays(seasonEndDate, -4); // 5-day window inclusive
 
   // Recover tournament structure: figure out how many teams and rebuild rounds
   // from the games we were given (which already have home/away assigned)
@@ -518,7 +562,7 @@ function tryBuildSchedule(games, slots, numTeams) {
   let bestSchedule = null;
   let bestScore = Infinity;
 
-  for (let attempt = 0; attempt < NUM_ATTEMPTS; attempt++) {
+  function runAttempt(attempt) {
     // Reset the H/A counter each attempt
     for (const key of gameCounts.keys()) gameCounts.set(key, 0);
 
@@ -535,6 +579,8 @@ function tryBuildSchedule(games, slots, numTeams) {
       teamWeek.set(t, new Map());
       teamField.set(t, new Map());
     }
+    const teamEndGames = new Map(); // games per team in last 5 days
+    for (let t = 0; t < numTeams; t++) teamEndGames.set(t, 0);
     let failed = false;
 
     // Shuffle which rounds go to which weekends
@@ -560,7 +606,11 @@ function tryBuildSchedule(games, slots, numTeams) {
           !teamDay.get(home).has(s.date) &&
           !teamDay.get(away).has(s.date) &&
           !hasConsecutiveDays(teamDay.get(home), s.date) &&
-          !hasConsecutiveDays(teamDay.get(away), s.date)
+          !hasConsecutiveDays(teamDay.get(away), s.date) &&
+          !hasEarlySeasonConflict(teamDay.get(home), s.date, seasonStartDate) &&
+          !hasEarlySeasonConflict(teamDay.get(away), s.date, seasonStartDate) &&
+          !(s.date >= endOfSeasonCutoff && teamEndGames.get(home) >= 1) &&
+          !(s.date >= endOfSeasonCutoff && teamEndGames.get(away) >= 1)
         );
 
         let bestSlot;
@@ -583,12 +633,12 @@ function tryBuildSchedule(games, slots, numTeams) {
 
         taken.add(bestSlot.sortKey);
         dateGameCount.set(bestSlot.date, (dateGameCount.get(bestSlot.date) || 0) + 1);
-        recordAssignment(schedule, bestSlot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate, teamField);
+        recordAssignment(schedule, bestSlot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff);
       }
-      if (failed) break;
+      if (failed) return;
     }
 
-    if (failed) continue;
+    if (failed) return;
 
     // Phase 2: Assign weekday games via greedy
     for (const pair of shuffledWeekdayGames) {
@@ -600,7 +650,11 @@ function tryBuildSchedule(games, slots, numTeams) {
         !teamDay.get(home).has(s.date) &&
         !teamDay.get(away).has(s.date) &&
         !hasConsecutiveDays(teamDay.get(home), s.date) &&
-        !hasConsecutiveDays(teamDay.get(away), s.date)
+        !hasConsecutiveDays(teamDay.get(away), s.date) &&
+        !hasEarlySeasonConflict(teamDay.get(home), s.date, seasonStartDate) &&
+        !hasEarlySeasonConflict(teamDay.get(away), s.date, seasonStartDate) &&
+        !(s.date >= endOfSeasonCutoff && teamEndGames.get(home) >= 1) &&
+        !(s.date >= endOfSeasonCutoff && teamEndGames.get(away) >= 1)
       );
 
       if (eligible.length === 0) { failed = true; break; }
@@ -645,10 +699,10 @@ function tryBuildSchedule(games, slots, numTeams) {
       }
 
       taken.add(bestSlot.sortKey);
-      recordAssignment(schedule, bestSlot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate, teamField);
+      recordAssignment(schedule, bestSlot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff);
     }
 
-    if (failed) continue;
+    if (failed) return;
 
     const score = scoreCandidate(schedule, numTeams, slots);
     if (score < bestScore) {
@@ -657,15 +711,31 @@ function tryBuildSchedule(games, slots, numTeams) {
     }
   }
 
-  if (!bestSchedule) {
-    throw new Error('Could not build a valid schedule after ' + NUM_ATTEMPTS + ' attempts. Try adding more slots or reducing games per team.');
-  }
-
-  return { schedule: bestSchedule, score: bestScore, details: scoreDetails(bestSchedule, numTeams, slots) };
+  return new Promise(function (resolve, reject) {
+    var attempt = 0;
+    function step() {
+      // Run a batch of attempts before yielding
+      var batchEnd = Math.min(attempt + 5, NUM_ATTEMPTS);
+      for (; attempt < batchEnd; attempt++) {
+        runAttempt(attempt);
+      }
+      if (onProgress) onProgress(attempt / NUM_ATTEMPTS, bestScore);
+      if (attempt < NUM_ATTEMPTS) {
+        setTimeout(step, 0);
+      } else {
+        if (!bestSchedule) {
+          reject(new Error('Could not build a valid schedule after ' + NUM_ATTEMPTS + ' attempts. Try adding more slots or reducing games per team.'));
+        } else {
+          resolve({ schedule: bestSchedule, score: bestScore, details: scoreDetails(bestSchedule, numTeams, slots) });
+        }
+      }
+    }
+    step();
+  });
 }
 
 // Entry point called by ui.js — handles matchup generation, H/A, and scheduling in one call
-function buildSchedule(numTeams, gamesPerTeam, slots) {
+function buildSchedule(numTeams, gamesPerTeam, slots, onProgress) {
   // Determine weekend count from slots so selectMatchups uses the same pairs as scheduling
   const weekendGroupSet = new Set();
   for (const s of slots) {
@@ -685,14 +755,15 @@ function buildSchedule(numTeams, gamesPerTeam, slots) {
 
   const haGames = assignHomeAway(allPairs, numTeams);
   const games = haGames.map(g => ({ home: g.home, away: g.away }));
-  const result = tryBuildSchedule(games, slots, numTeams);
-  rebalanceHomeAway(result.schedule, numTeams, gamesPerTeam);
-  result.details = scoreDetails(result.schedule, numTeams, slots);
-  return result;
+  return tryBuildSchedule(games, slots, numTeams, onProgress).then(result => {
+    rebalanceHomeAway(result.schedule, numTeams, gamesPerTeam);
+    result.details = scoreDetails(result.schedule, numTeams, slots);
+    return result;
+  });
 }
 
 // Helper to record a game assignment and update tracking structures
-function recordAssignment(schedule, slot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate, teamField) {
+function recordAssignment(schedule, slot, home, away, teamDay, teamWeekend, teamWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff) {
   teamDay.get(home).add(slot.date);
   teamDay.get(away).add(slot.date);
   if (slot.weekendGroup) {
@@ -712,6 +783,10 @@ function recordAssignment(schedule, slot, home, away, teamDay, teamWeekend, team
     hf.set(slot.field, (hf.get(slot.field) || 0) + 1);
     const af = teamField.get(away);
     af.set(slot.field, (af.get(slot.field) || 0) + 1);
+  }
+  if (teamEndGames && endOfSeasonCutoff && slot.date >= endOfSeasonCutoff) {
+    teamEndGames.set(home, teamEndGames.get(home) + 1);
+    teamEndGames.set(away, teamEndGames.get(away) + 1);
   }
 
   schedule.push({

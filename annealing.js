@@ -34,6 +34,34 @@ function anneal(schedule, slots, numTeams, onProgress) {
     slotsByKey[slotKey(s.date, s.time, s.field)] = s;
   }
 
+  // Hard constraint: max 1 game per team in the last 5 days of the season
+  var allSlotDates = [];
+  for (var i = 0; i < slots.length; i++) {
+    allSlotDates.push(slots[i].date);
+  }
+  allSlotDates.sort();
+  var seasonStartDate = allSlotDates[0];
+  var seasonEndDate = allSlotDates[allSlotDates.length - 1];
+  var endOfSeasonCutoff = addDays(seasonEndDate, -4);
+
+  function hasEndOfSeasonConflict(teamsToCheck) {
+    var teamEndCount = {};
+    for (var tid in teamsToCheck) {
+      teamEndCount[tid] = 0;
+    }
+    for (var i = 0; i < current.length; i++) {
+      var g = current[i];
+      if (g.date >= endOfSeasonCutoff) {
+        if (teamsToCheck[g.home]) teamEndCount[g.home]++;
+        if (teamsToCheck[g.away]) teamEndCount[g.away]++;
+      }
+    }
+    for (var tid in teamEndCount) {
+      if (teamEndCount[tid] > 1) return true;
+    }
+    return false;
+  }
+
   // Hard constraint: check that the given teams don't play twice on the same
   // day anywhere in the schedule. Only inspects the teams listed.
   function hassameDayConflict(teamsToCheck) {
@@ -69,6 +97,22 @@ function anneal(schedule, slots, numTeams, onProgress) {
     }
     for (var tid in teamDates) {
       if (teamHasConsecutiveDays(teamDates[tid])) return true;
+    }
+    return false;
+  }
+
+  function hasEarlySeasonGapConflict(teamsToCheck) {
+    var teamDates = {};
+    for (var tid in teamsToCheck) {
+      teamDates[tid] = [];
+    }
+    for (var i = 0; i < current.length; i++) {
+      var g = current[i];
+      if (teamsToCheck[g.home]) teamDates[g.home].push(g.date);
+      if (teamsToCheck[g.away]) teamDates[g.away].push(g.date);
+    }
+    for (var tid in teamDates) {
+      if (teamHasEarlySeasonConflict(teamDates[tid], seasonStartDate)) return true;
     }
     return false;
   }
@@ -122,7 +166,7 @@ function anneal(schedule, slots, numTeams, onProgress) {
         affected[gb.home] = true;
         affected[gb.away] = true;
 
-        if (hassameDayConflict(affected) || hasConsecutiveDayConflict(affected)) {
+        if (hassameDayConflict(affected) || hasConsecutiveDayConflict(affected) || hasEarlySeasonGapConflict(affected) || hasEndOfSeasonConflict(affected)) {
           // Undo.
           ga.date = aDate; ga.dayOfWeek = aDow; ga.time = aTime; ga.field = aField;
           gb.date = bDate; gb.dayOfWeek = bDow; gb.time = bTime; gb.field = bField;
@@ -179,7 +223,7 @@ function anneal(schedule, slots, numTeams, onProgress) {
         affected[game.home] = true;
         affected[game.away] = true;
 
-        if (hassameDayConflict(affected) || hasConsecutiveDayConflict(affected)) {
+        if (hassameDayConflict(affected) || hasConsecutiveDayConflict(affected) || hasEarlySeasonGapConflict(affected) || hasEndOfSeasonConflict(affected)) {
           // Undo.
           game.date = oldDate; game.dayOfWeek = oldDow; game.time = oldTime; game.field = oldField;
           delete usedSlots[newKey];

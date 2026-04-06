@@ -3,7 +3,7 @@
 ## Overview
 Browser-based little league baseball/softball scheduler. No server, no build tools — plain JS/CSS/HTML. Generates an optimized game schedule from team count, games-per-team, and a TSV field-availability matrix.
 
-Whenever you make a change, check whether you need to update agents.md (this file) to keep it correct and up to date.
+Whenever you make a change, check whether you need to update CLAUDE.md (this file) to keep it correct and up to date.
 
 ## Files
 - **scheduler.js** (~900 lines) — Core engine: TSV parsing, round-robin tournament generation, matchup selection, home/away assignment, greedy schedule builder, scoring/penalty system
@@ -44,6 +44,7 @@ Users can adjust all weights via collapsible "Penalty Weights" panel in Settings
 ## Hard Constraints (enforced in greedy builder + SA)
 - No team plays twice on the same day
 - No team plays 3+ consecutive calendar days (`hasConsecutiveDays` / `teamHasConsecutiveDays`)
+- In the first 10 days of the season, no team can have games within 2 days of each other (`hasEarlySeasonConflict` / `teamHasEarlySeasonConflict`)
 
 ## Known Issues
 - None

@@ -40,28 +40,7 @@
     </div>
     <div id="penaltyWeights" class="penalty-body hidden">
       <p class="penalty-hint">Controls how much the optimizer cares about each rule. Higher = stronger priority. Set to 0 to ignore a rule.</p>
-      <div class="penalty-grid">
-        <label>Weekend Sit-outs (no games in a weekend)</label>
-        <input type="number" id="w_weekendSitouts" min="0" max="50" value="12" step="1">
-        <label>Weekday Back-to-Back</label>
-        <input type="number" id="w_weekdayBackToBack" min="0" max="50" value="10" step="1">
-        <label>Weekend Back-to-Back</label>
-        <input type="number" id="w_weekendDoubleHeaders" min="0" max="50" value="8" step="1">
-        <label>Fri/Sat or Sun/Mon Back-to-Back</label>
-        <input type="number" id="w_crossBoundaryBTB" min="0" max="50" value="7" step="1">
-        <label>Gap Variance (difference time between games across teams)</label>
-        <input type="number" id="w_gapVariance" min="0" max="50" value="6" step="1">
-        <label>5-Day Density (don't have too many games within 5 days)</label>
-        <input type="number" id="w_rollingDensity" min="0" max="50" value="5" step="1">
-        <label>6-Day Density (don't have too many games within 6 days)</label>
-        <input type="number" id="w_sixDayDensity" min="0" max="50" value="5" step="1">
-        <label>Short Gap Penalty</label>
-        <input type="number" id="w_shortGapPenalty" min="0" max="50" value="3" step="1">
-        <label>Time Distribution</label>
-        <input type="number" id="w_timeDistribution" min="0" max="50" value="3" step="1">
-        <label>Field Balance (teams play even games at each field)</label>
-        <input type="number" id="w_fieldBalance" min="0" max="50" value="4" step="1">
-      </div>
+      <div class="penalty-grid" id="penaltyGrid"></div>
     </div>
   </div>
   <div class="actions">

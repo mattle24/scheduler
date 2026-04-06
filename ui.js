@@ -15,7 +15,19 @@ function syncWeights() {
   }
 }
 
+function buildPenaltyGrid() {
+  const grid = document.getElementById('penaltyGrid');
+  for (const key in WEIGHTS) {
+    const label = document.createElement('label');
+    label.textContent = WEIGHT_LABELS[key] || key;
+    const input = document.createElement('input');
+    Object.assign(input, { type: 'number', id: 'w_' + key, min: '0', max: '50', value: String(WEIGHTS[key]), step: '1' });
+    grid.append(label, input);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  buildPenaltyGrid();
   document.getElementById('tsvFile').addEventListener('change', handleFileUpload);
 });
 
@@ -68,19 +80,31 @@ function generate() {
 
       syncWeights();
       const slots = parseTSV(tsvText);
-      const result = buildSchedule(numTeams, gamesPerTeam, slots);
 
-      // Phase 2: Simulated annealing refinement
+      // Phase 1: Build schedule with progress
       statusBox.innerHTML = `
-        <div>Phase 2: Optimizing schedule...</div>
+        <div>Phase 1: Building schedule...</div>
         <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
         <div class="progress-label" id="progressLabel">0%</div>`;
 
-      anneal(result.schedule, slots, numTeams, (pct, score) => {
+      buildSchedule(numTeams, gamesPerTeam, slots, (pct, score) => {
         const percent = Math.round(pct * 100);
         document.getElementById('progressFill').style.width = percent + '%';
-        document.getElementById('progressLabel').textContent = percent + '% — score: ' + score.toFixed(1);
-      }).then(refined => {
+        const label = score === Infinity ? percent + '%' : percent + '% — score: ' + score.toFixed(1);
+        document.getElementById('progressLabel').textContent = label;
+      }).then(result => {
+        // Phase 2: Simulated annealing refinement
+        statusBox.innerHTML = `
+          <div>Phase 2: Optimizing schedule...</div>
+          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+          <div class="progress-label" id="progressLabel">0%</div>`;
+
+        return anneal(result.schedule, slots, numTeams, (pct, score) => {
+          const percent = Math.round(pct * 100);
+          document.getElementById('progressFill').style.width = percent + '%';
+          document.getElementById('progressLabel').textContent = percent + '% — score: ' + score.toFixed(1);
+        }).then(refined => ({ result, refined }));
+      }).then(({ result, refined }) => {
         const finalSchedule = refined.schedule;
         const finalDetails = scoreDetails(finalSchedule, numTeams, slots);
 
@@ -88,6 +112,9 @@ function generate() {
         renderResults(finalSchedule, finalDetails, numTeams, slots, result.details);
         statusBox.classList.add('hidden');
         document.getElementById('results').classList.remove('hidden');
+      }).catch(e => {
+        statusBox.classList.add('hidden');
+        showError(e.message);
       });
     } catch (e) {
       statusBox.classList.add('hidden');
