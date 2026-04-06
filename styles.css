@@ -1,10 +1,10 @@
 :root {
   --bg: #f8f9fa;
   --card-bg: #fff;
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
+  --primary: rgb(45, 90, 39);
+  --primary-hover:  rgb(194, 159, 90);
   --danger: #dc2626;
-  --success: #16a34a;
+  --success: rgb(21, 159, 71);
   --muted: #6b7280;
   --border: #e5e7eb;
   --radius: 8px;
@@ -79,7 +79,7 @@ th { background: #f3f4f6; font-weight: 600; font-size: .8rem; text-transform: up
 .heatmap-table th.date-header { writing-mode: vertical-lr; transform: rotate(180deg); font-size: .7rem; }
 .heatmap-table td.team-name { white-space: nowrap; text-align: left; font-weight: 600; font-size: .8rem; }
 .heatmap-cell { width: 18px; height: 18px; border: 1px solid #e5e7eb; }
-.heatmap-cell.active { background: #2563eb; border-color: #1e40af; }
+.heatmap-cell.active { background: rgb(45, 90, 39); border-color: #000; }
 .heatmap-cell.inactive { background: #fff; }
 
 /* Division table */
