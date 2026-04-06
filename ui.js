@@ -1,5 +1,6 @@
 // ─── UI Controller ───────────────────────────────────────────────────────────
 let lastCSV = '';
+let cachedFieldNames = []; // field names parsed from TSV header
 
 function togglePenalties() {
   const body = document.getElementById('penaltyWeights');
@@ -26,98 +27,186 @@ function buildPenaltyGrid() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  buildPenaltyGrid();
-  document.getElementById('tsvFile').addEventListener('change', handleFileUpload);
-});
+// ─── Division Management ─────────────────────────────────────────────────────
 
-function handleFileUpload(e) {
-  const file = e.target.files[0];
-  if (!file) return;
+function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit) {
+  const tbody = document.querySelector('#divisionTable tbody');
+  const tr = document.createElement('tr');
 
-  document.getElementById('fileName').textContent = file.name;
+  tr.innerHTML = `
+    <td><input type="text" class="div-name" placeholder="e.g. Majors" value="${name || ''}"></td>
+    <td><input type="number" class="div-teams" min="2" max="30" value="${numTeams || ''}"></td>
+    <td><input type="number" class="div-games" min="1" max="100" value="${gamesPerTeam || ''}"></td>
+    <td style="text-align:center;"><input type="checkbox" class="div-league" ${leagueSplit ? 'checked' : ''}></td>
+    <td><div class="div-fields"></div></td>
+    <td><button class="btn-remove" onclick="removeDivisionRow(this)" title="Remove division">&times;</button></td>
+  `;
 
-  if (file.name.match(/\.xlsx?$/i)) {
-    showError('Excel files are not supported. Please export as TSV or CSV first.');
-    e.target.value = '';
-    document.getElementById('fileName').textContent = '';
+  tbody.appendChild(tr);
+  populateFieldCheckboxes(tr);
+}
+
+function removeDivisionRow(btn) {
+  const tbody = document.querySelector('#divisionTable tbody');
+  if (tbody.rows.length <= 1) return;
+  btn.closest('tr').remove();
+}
+
+function populateFieldCheckboxes(tr) {
+  const container = tr.querySelector('.div-fields');
+  if (cachedFieldNames.length === 0) {
+    container.innerHTML = '<span class="field-hint">Paste TSV first</span>';
     return;
   }
-
-  const reader = new FileReader();
-  reader.onload = (evt) => {
-    document.getElementById('tsvInput').value = evt.target.result;
-  };
-  reader.readAsText(file);
+  container.innerHTML = '';
+  for (const field of cachedFieldNames) {
+    const lbl = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.value = field;
+    lbl.append(cb, ' ' + field);
+    container.appendChild(lbl);
+  }
 }
 
-function showError(msg) {
-  const el = document.getElementById('errorBox');
-  el.textContent = msg;
-  el.classList.remove('hidden');
+function updateFieldChoices() {
+  const tsvText = document.getElementById('tsvInput').value;
+  const firstLine = tsvText.split(/\r?\n/)[0] || '';
+  const cols = firstLine.split('\t');
+  const fields = cols.slice(1).map(s => s.trim()).filter(Boolean);
+
+  // Only update if field names actually changed
+  if (JSON.stringify(fields) === JSON.stringify(cachedFieldNames)) return;
+  cachedFieldNames = fields;
+
+  const rows = document.querySelectorAll('#divisionTable tbody tr');
+  for (const tr of rows) {
+    // Preserve checked state for fields that still exist
+    const prev = new Map();
+    for (const cb of tr.querySelectorAll('.div-fields input[type="checkbox"]')) {
+      prev.set(cb.value, cb.checked);
+    }
+    const container = tr.querySelector('.div-fields');
+    if (fields.length === 0) {
+      container.innerHTML = '<span class="field-hint">Paste TSV first</span>';
+      continue;
+    }
+    container.innerHTML = '';
+    for (const field of fields) {
+      const lbl = document.createElement('label');
+      lbl.classList.add('field-cb');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = prev.has(field) ? prev.get(field) : true;
+      cb.value = field;
+      lbl.append(cb, ' ' + field);
+      container.appendChild(lbl);
+    }
+  }
 }
 
-function clearError() {
-  document.getElementById('errorBox').classList.add('hidden');
+function readDivisions() {
+  const rows = document.querySelectorAll('#divisionTable tbody tr');
+  if (rows.length === 0) throw new Error('Add at least one division');
+  const divs = [];
+  for (let i = 0; i < rows.length; i++) {
+    const tr = rows[i];
+    const name = tr.querySelector('.div-name').value.trim();
+    const numTeams = parseInt(tr.querySelector('.div-teams').value);
+    const gamesPerTeam = parseInt(tr.querySelector('.div-games').value);
+    const leagueSplit = tr.querySelector('.div-league').checked;
+    const fields = [];
+    for (const cb of tr.querySelectorAll('.div-fields input[type="checkbox"]')) {
+      if (cb.checked) fields.push(cb.value);
+    }
+
+    if (!name) throw new Error(`Division ${i + 1}: please enter a name`);
+    if (!numTeams || numTeams < 2) throw new Error(`Division "${name}": need at least 2 teams`);
+    if (!gamesPerTeam || gamesPerTeam < 1) throw new Error(`Division "${name}": need at least 1 game per team`);
+    if (fields.length === 0) throw new Error(`Division "${name}": select at least one field`);
+
+    divs.push({ name, numTeams, gamesPerTeam, leagueSplit, fields });
+  }
+  return divs;
 }
+
+// ─── Schedule Generation ─────────────────────────────────────────────────────
 
 function generate() {
   clearError();
   document.getElementById('results').classList.add('hidden');
   const statusBox = document.getElementById('statusBox');
   statusBox.classList.remove('hidden');
-  statusBox.innerHTML = 'Phase 1: Building schedule...';
+  statusBox.innerHTML = 'Preparing...';
 
-  setTimeout(() => {
+  setTimeout(async () => {
     try {
-      const numTeams = parseInt(document.getElementById('numTeams').value);
-      const gamesPerTeam = parseInt(document.getElementById('gamesPerTeam').value);
+      const divs = readDivisions();
       const tsvText = document.getElementById('tsvInput').value;
-
-      if (!numTeams || numTeams < 2) throw new Error('Need at least 2 teams');
-      if (!gamesPerTeam || gamesPerTeam < 1) throw new Error('Need at least 1 game per team');
       if (!tsvText.trim()) throw new Error('Please enter field availability data');
 
-      const leagueSplit = document.getElementById('leagueSplit').checked;
-
       syncWeights();
-      const slots = parseTSV(tsvText);
+      const allSlots = parseTSV(tsvText);
+      const claimedKeys = new Set();
+      const divisionResults = [];
 
-      // Phase 1: Build schedule with progress
-      statusBox.innerHTML = `
-        <div>Phase 1: Building schedule...</div>
-        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-        <div class="progress-label" id="progressLabel">0%</div>`;
+      for (let i = 0; i < divs.length; i++) {
+        const div = divs[i];
+        const divLabel = `Division "${div.name}" (${i + 1}/${divs.length})`;
 
-      buildSchedule(numTeams, gamesPerTeam, slots, (pct, score) => {
-        const percent = Math.round(pct * 100);
-        document.getElementById('progressFill').style.width = percent + '%';
-        const label = score === Infinity ? percent + '%' : percent + '% — score: ' + score.toFixed(1);
-        document.getElementById('progressLabel').textContent = label;
-      }, { leagueSplit }).then(result => {
-        // Phase 2: Simulated annealing refinement
+        // Filter slots to this division's valid fields minus already-claimed slots
+        const divSlots = allSlots.filter(s =>
+          div.fields.includes(s.field) && !claimedKeys.has(s.sortKey)
+        );
+
+        // Phase 1: Build
         statusBox.innerHTML = `
-          <div>Phase 2: Optimizing schedule...</div>
+          <div>${divLabel}: Building schedule...</div>
           <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
           <div class="progress-label" id="progressLabel">0%</div>`;
 
-        return anneal(result.schedule, slots, numTeams, (pct, score) => {
+        const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, (pct, score) => {
+          const percent = Math.round(pct * 100);
+          document.getElementById('progressFill').style.width = percent + '%';
+          const label = score === Infinity ? percent + '%' : percent + '% — score: ' + score.toFixed(1);
+          document.getElementById('progressLabel').textContent = label;
+        }, { leagueSplit: div.leagueSplit });
+
+        // Phase 2: Anneal
+        statusBox.innerHTML = `
+          <div>${divLabel}: Optimizing schedule...</div>
+          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+          <div class="progress-label" id="progressLabel">0%</div>`;
+
+        const refined = await anneal(result.schedule, divSlots, div.numTeams, (pct, score) => {
           const percent = Math.round(pct * 100);
           document.getElementById('progressFill').style.width = percent + '%';
           document.getElementById('progressLabel').textContent = percent + '% — score: ' + score.toFixed(1);
-        }).then(refined => ({ result, refined }));
-      }).then(({ result, refined }) => {
-        const finalSchedule = refined.schedule;
-        const finalDetails = scoreDetails(finalSchedule, numTeams, slots);
+        });
 
-        lastCSV = formatCSV(finalSchedule);
-        renderResults(finalSchedule, finalDetails, numTeams, slots, result.details, leagueSplit);
-        statusBox.classList.add('hidden');
-        document.getElementById('results').classList.remove('hidden');
-      }).catch(e => {
-        statusBox.classList.add('hidden');
-        showError(e.message);
-      });
+        const finalSchedule = refined.schedule;
+        const finalDetails = scoreDetails(finalSchedule, div.numTeams, divSlots);
+
+        // Claim the slots used by this division
+        for (const g of finalSchedule) {
+          const key = g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field;
+          claimedKeys.add(key);
+        }
+
+        divisionResults.push({
+          division: div,
+          schedule: finalSchedule,
+          details: finalDetails,
+          greedyDetails: result.details,
+          slots: divSlots
+        });
+      }
+
+      lastCSV = formatMultiDivisionCSV(divisionResults);
+      renderMultiDivisionResults(divisionResults);
+      statusBox.classList.add('hidden');
+      document.getElementById('results').classList.remove('hidden');
     } catch (e) {
       statusBox.classList.add('hidden');
       showError(e.message);
@@ -125,33 +214,110 @@ function generate() {
   }, 50);
 }
 
+// ─── Scoring ─────────────────────────────────────────────────────────────────
+
 function weightedScore(d) {
   return d.weekendSitouts * WEIGHTS.weekendSitouts + d.weekdayBackToBack * WEIGHTS.weekdayBackToBack + d.weekendDoubleHeaders * WEIGHTS.weekendDoubleHeaders + d.crossBoundaryBTB * WEIGHTS.crossBoundaryBTB + d.gapVariance * WEIGHTS.gapVariance
     + d.rollingDensity * WEIGHTS.rollingDensity + d.sixDayDensity * WEIGHTS.sixDayDensity + d.shortGapPenalty * WEIGHTS.shortGapPenalty + d.timeDistribution * WEIGHTS.timeDistribution + d.fieldBalance * WEIGHTS.fieldBalance;
 }
 
-function renderResults(schedule, details, numTeams, slots, greedyDetails, leagueSplit) {
-  // Compute slot utilization
-  const weekendSlots = slots.filter(s => s.dayOfWeek === 0 || s.dayOfWeek === 6).length;
-  const weekdaySlots = slots.filter(s => s.dayOfWeek >= 1 && s.dayOfWeek <= 5).length;
-  const weekendUsed = schedule.filter(g => { const dow = new Date(g.date + 'T00:00:00').getDay(); return dow === 0 || dow === 6; }).length;
-  const weekdayUsed = schedule.filter(g => { const dow = new Date(g.date + 'T00:00:00').getDay(); return dow >= 1 && dow <= 5; }).length;
+// ─── Rendering ───────────────────────────────────────────────────────────────
 
-  const greedyScore = Math.round(weightedScore(greedyDetails) * 10) / 10;
-  const finalScore = Math.round(weightedScore(details) * 10) / 10;
-  const improvement = greedyScore > 0 ? Math.round((1 - finalScore / greedyScore) * 100) : 0;
+function renderMultiDivisionResults(divisionResults) {
+  const container = document.getElementById('results');
+  container.innerHTML = '';
 
+  // Slot utilization by field
+  renderSlotStats(container, divisionResults);
+
+  // Floating TOC
+  if (divisionResults.length > 1) {
+    const toc = document.createElement('nav');
+    toc.className = 'results-toc';
+    toc.innerHTML = '<span class="toc-label">Jump to:</span>' +
+      divisionResults.map((dr, i) =>
+        `<a href="#division-${i}">${dr.division.name}</a>`
+      ).join('');
+    container.appendChild(toc);
+  }
+
+  for (let i = 0; i < divisionResults.length; i++) {
+    const dr = divisionResults[i];
+    const section = document.createElement('div');
+    section.className = 'division-section';
+    section.id = `division-${i}`;
+    const heading = document.createElement('h2');
+    heading.textContent = dr.division.name;
+    section.appendChild(heading);
+
+    renderDivisionBlock(section, dr.schedule, dr.details, dr.division.numTeams, dr.division.leagueSplit);
+    container.appendChild(section);
+  }
+
+  // Download button at the bottom
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  actions.innerHTML = '<button class="btn-secondary btn-sm" onclick="downloadCSV()">Download CSV</button>';
+  container.appendChild(actions);
+}
+
+function renderSlotStats(container, divisionResults) {
+  // Collect all slots and all scheduled games across divisions, grouped by field
+  const allSlots = divisionResults.flatMap(dr => dr.slots);
+  const allGames = divisionResults.flatMap(dr => dr.schedule);
+
+  // Unique fields from slots
+  const fieldNames = [...new Set(allSlots.map(s => s.field))].sort();
+
+  // Count per field: total slots, weekend slots, weekday slots, used weekend, used weekday
+  const gamesByField = new Map();
+  for (const g of allGames) {
+    if (!gamesByField.has(g.field)) gamesByField.set(g.field, []);
+    gamesByField.get(g.field).push(g);
+  }
+
+  // Also need total unique slots per field (avoid double-counting shared slots)
+  const slotKeysByField = new Map();
+  for (const dr of divisionResults) {
+    for (const s of dr.slots) {
+      if (!slotKeysByField.has(s.field)) slotKeysByField.set(s.field, new Set());
+      slotKeysByField.get(s.field).add(s.sortKey);
+    }
+  }
+
+  let html = '<table><thead><tr><th>Field</th><th>Weekend Slots</th><th>Weekday Slots</th><th>Total</th></tr></thead><tbody>';
+  for (const field of fieldNames) {
+    const slots = allSlots.filter(s => s.field === field);
+    const seen = new Set();
+    let weekendTotal = 0, weekdayTotal = 0;
+    for (const s of slots) {
+      if (seen.has(s.sortKey)) continue;
+      seen.add(s.sortKey);
+      if (s.dayOfWeek === 0 || s.dayOfWeek === 6) weekendTotal++;
+      else weekdayTotal++;
+    }
+    const games = gamesByField.get(field) || [];
+    let weekendUsed = 0, weekdayUsed = 0;
+    for (const g of games) {
+      const dow = new Date(g.date + 'T00:00:00').getDay();
+      if (dow === 0 || dow === 6) weekendUsed++;
+      else weekdayUsed++;
+    }
+    const total = weekendUsed + weekdayUsed;
+    const totalSlots = weekendTotal + weekdayTotal;
+    html += `<tr><td>${field}</td><td>${weekendUsed} / ${weekendTotal}</td><td>${weekdayUsed} / ${weekdayTotal}</td><td>${total} / ${totalSlots}</td></tr>`;
+  }
+  html += '</tbody></table>';
+
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = '<h2>Slot Utilization by Field</h2>' + html;
+  container.appendChild(card);
+}
+
+function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit) {
+  // Score cards
   const cards = [
-    { label: 'Greedy Score', value: greedyScore, rawClass: 'neutral',
-      tip: 'Weighted composite score after the initial greedy scheduler, before optimization.' },
-    { label: 'Optimized Score', value: finalScore, rawClass: 'neutral',
-      tip: 'Weighted composite score after simulated annealing optimization. Lower is better.' },
-    { label: 'Improvement', value: `${improvement}%`, rawClass: 'neutral',
-      tip: 'Percentage reduction in score from greedy to optimized. Higher is better.' },
-    { label: 'Weekend Slots', value: `${weekendUsed} / ${weekendSlots}`, rawClass: 'neutral',
-      tip: 'Games scheduled on weekend slots out of total available weekend slots.' },
-    { label: 'Weekday Slots', value: `${weekdayUsed} / ${weekdaySlots}`, rawClass: 'neutral',
-      tip: 'Games scheduled on weekday slots out of total available weekday slots.' },
     { label: 'Weekend Sit-outs', value: details.weekendSitouts, min: 0,
       tip: 'Number of times a team has zero games on a weekend that has available slots. Lower is better.' },
     { label: 'Weekend Back-to-Back', value: details.weekendDoubleHeaders, min: details.minWeekendDH,
@@ -162,7 +328,9 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails, league
       tip: 'Back-to-back games crossing the weekday/weekend boundary (Fri→Sat or Sun→Mon). Bad for pitcher rest.' },
   ];
 
-  document.getElementById('scoreGrid').innerHTML = cards.map(c => {
+  const scoreCard = document.createElement('div');
+  scoreCard.className = 'card';
+  scoreCard.innerHTML = '<h2>Constraint Scores</h2><div class="score-grid">' + cards.map(c => {
     let cls;
     if (c.rawClass) {
       cls = c.rawClass;
@@ -173,7 +341,8 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails, league
     const minNote = c.min != null && c.min > 0 ? `<div class="min-note">best possible: ${c.min}</div>` : '';
     const tipAttr = c.tip ? ` data-tip="${c.tip}"` : '';
     return `<div class="score-card"${tipAttr}><div class="label">${c.label}</div><div class="value ${cls}">${c.value}</div>${minNote}</div>`;
-  }).join('');
+  }).join('') + '</div>';
+  container.appendChild(scoreCard);
 
   // Per-team summary
   const alSize = Math.floor(numTeams / 2);
@@ -187,13 +356,11 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails, league
     for (let i = 1; i < dates.length; i++) gaps.push(daysBetween(dates[i - 1], dates[i]));
     const avgGap = gaps.length ? (gaps.reduce((a, b) => a + b, 0) / gaps.length).toFixed(1) : '-';
 
-    // Count all back-to-backs (gap === 1)
     let btb = 0;
     for (const gap of gaps) {
       if (gap === 1) btb++;
     }
 
-    // Intra/inter league game counts
     let intraLeague = 0, interLeague = 0;
     if (leagueSplit) {
       for (const g of games) {
@@ -204,7 +371,6 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails, league
       }
     }
 
-    // Games per field
     const fieldCounts = new Map();
     for (const g of games) {
       fieldCounts.set(g.field, (fieldCounts.get(g.field) || 0) + 1);
@@ -225,7 +391,6 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails, league
     });
   }
 
-  // Collect all field names from the schedule, sorted
   const allFields = [...new Set(schedule.map(g => g.field))].sort();
 
   let html = '<table><thead><tr>';
@@ -243,7 +408,11 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails, league
     html += '</tr>';
   }
   html += '</tbody></table>';
-  document.getElementById('teamSummary').innerHTML = html;
+
+  const summaryCard = document.createElement('div');
+  summaryCard.className = 'card';
+  summaryCard.innerHTML = '<h2>Per-Team Summary</h2>' + html;
+  container.appendChild(summaryCard);
 
   // Schedule table
   const sorted = [...schedule].sort((a, b) => {
@@ -261,13 +430,21 @@ function renderResults(schedule, details, numTeams, slots, greedyDetails, league
     shtml += `<tr><td>${day}</td><td>${dateDisplay}</td><td>${formatTimeDisplay(g.time)}</td><td>${g.field}</td><td>${g.away + 1}B</td><td>${g.home + 1}B</td></tr>`;
   }
   shtml += '</tbody></table>';
-  document.getElementById('scheduleTable').innerHTML = shtml;
 
-  renderHeatmap(schedule, numTeams);
+  const schedCard = document.createElement('div');
+  schedCard.className = 'card';
+  schedCard.innerHTML = '<h2>Schedule</h2>' + shtml;
+  container.appendChild(schedCard);
+
+  // Heatmap
+  const heatmapCard = document.createElement('div');
+  heatmapCard.className = 'card';
+  heatmapCard.innerHTML = '<h2>Team Heatmap</h2><div style="overflow-x:auto;"></div>';
+  renderHeatmapInto(heatmapCard.querySelector('div'), schedule, numTeams);
+  container.appendChild(heatmapCard);
 }
 
-function renderHeatmap(schedule, numTeams) {
-  // Build contiguous date range from first to last game date
+function renderHeatmapInto(container, schedule, numTeams) {
   const gameDates = schedule.map(g => g.date).sort();
   const dates = [];
   if (gameDates.length > 0) {
@@ -282,7 +459,6 @@ function renderHeatmap(schedule, numTeams) {
     }
   }
 
-  // For each team, collect the set of dates they play on
   const teamDates = [];
   for (let t = 0; t < numTeams; t++) {
     const s = new Set();
@@ -292,7 +468,6 @@ function renderHeatmap(schedule, numTeams) {
     teamDates.push(s);
   }
 
-  // Build header row with rotated date labels
   let html = '<table class="heatmap-table"><thead><tr><th></th>';
   for (const date of dates) {
     const d = new Date(date + 'T00:00:00');
@@ -301,7 +476,6 @@ function renderHeatmap(schedule, numTeams) {
   }
   html += '</tr></thead><tbody>';
 
-  // One row per team
   for (let t = 0; t < numTeams; t++) {
     html += `<tr><td class="team-name">${t + 1}B</td>`;
     for (const date of dates) {
@@ -312,7 +486,33 @@ function renderHeatmap(schedule, numTeams) {
   }
 
   html += '</tbody></table>';
-  document.getElementById('heatmap').innerHTML = html;
+  container.innerHTML = html;
+}
+
+// ─── CSV Export ──────────────────────────────────────────────────────────────
+
+function formatMultiDivisionCSV(divisionResults) {
+  const allGames = [];
+  for (const dr of divisionResults) {
+    for (const g of dr.schedule) {
+      allGames.push({ ...g, divisionName: dr.division.name });
+    }
+  }
+  allGames.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    const ta = timeSortKey(a.time), tb = timeSortKey(b.time);
+    if (ta !== tb) return ta - tb;
+    return a.field < b.field ? -1 : 1;
+  });
+
+  const lines = ['Division,Day,Date,Time,Field,Away Team,Home Team'];
+  for (const g of allGames) {
+    const d = new Date(g.date + 'T00:00:00');
+    const day = DAYS[d.getDay()];
+    const dateDisplay = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    lines.push(`${g.divisionName},${day},${dateDisplay},${formatTimeDisplay(g.time)},${g.field},${g.away + 1}B,${g.home + 1}B`);
+  }
+  return lines.join('\n');
 }
 
 function downloadCSV() {
@@ -326,32 +526,41 @@ function downloadCSV() {
   URL.revokeObjectURL(url);
 }
 
-function loadSample() {
-  document.getElementById('numTeams').value = 16;
-  document.getElementById('gamesPerTeam').value = 18;
+// ─── Error Display ───────────────────────────────────────────────────────────
 
-  // 5 fields, 10 weeks starting Saturday April 11, 2026
+function showError(msg) {
+  const el = document.getElementById('errorBox');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function clearError() {
+  document.getElementById('errorBox').classList.add('hidden');
+}
+
+// ─── Sample Data ─────────────────────────────────────────────────────────────
+
+function loadSample() {
+  // Clear existing division rows and add two sample divisions
+  const tbody = document.querySelector('#divisionTable tbody');
+  tbody.innerHTML = '';
+  addDivisionRow('Majors', 12, 18, false);
+  addDivisionRow('Minors', 10, 14, false);
+
+  // 2 fields, 10 weeks starting Saturday April 11, 2026
   const fieldNames = ['Field 1', 'Field 2'];
-  const start = new Date(2026, 3, 11); // Saturday
+  const start = new Date(2026, 3, 11);
   const weekdayTimes = '6:00pm';
   const weekendTimes = '9:00am, 11:00am, 1:00pm, 3:00pm';
 
-  // Build rows: each row = { date, times-per-field (same for all fields) }
   const rows = [];
-
   for (let w = 0; w < 10; w++) {
     const sat = new Date(start);
     sat.setDate(sat.getDate() + w * 7);
-
-    // Saturday
     rows.push({ d: new Date(sat), times: weekendTimes });
-
-    // Sunday
     const sun = new Date(sat);
     sun.setDate(sun.getDate() + 1);
     rows.push({ d: sun, times: weekendTimes });
-
-    // Mon–Fri of the following week (Mon = sat + 2, Tue = sat + 3, ... Fri = sat + 6)
     for (let wd = 2; wd <= 6; wd++) {
       const day = new Date(sat);
       day.setDate(day.getDate() + wd);
@@ -359,7 +568,6 @@ function loadSample() {
     }
   }
 
-  // Build TSV header
   let tsv = 'Date\t' + fieldNames.join('\t') + '\n';
   for (const r of rows) {
     const ds = `${r.d.getMonth() + 1}/${r.d.getDate()}/${r.d.getFullYear()}`;
@@ -367,4 +575,44 @@ function loadSample() {
   }
 
   document.getElementById('tsvInput').value = tsv;
+  updateFieldChoices();
+}
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+  buildPenaltyGrid();
+
+  // Start with one empty division row
+  addDivisionRow();
+
+  // Update field checkboxes when TSV changes
+  let debounceTimer;
+  document.getElementById('tsvInput').addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(updateFieldChoices, 300);
+  });
+
+  document.getElementById('tsvFile').addEventListener('change', handleFileUpload);
+});
+
+function handleFileUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  document.getElementById('fileName').textContent = file.name;
+
+  if (file.name.match(/\.xlsx?$/i)) {
+    showError('Excel files are not supported. Please export as TSV or CSV first.');
+    e.target.value = '';
+    document.getElementById('fileName').textContent = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    document.getElementById('tsvInput').value = evt.target.result;
+    updateFieldChoices();
+  };
+  reader.readAsText(file);
 }

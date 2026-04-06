@@ -14,24 +14,25 @@
 
 <div class="card">
   <h2>Settings</h2>
-  <div class="row" style="margin-bottom: 1rem;">
-    <div>
-      <label for="numTeams">Number of Teams</label>
-      <input type="number" id="numTeams" min="2" max="30" value="">
+  <div style="margin-bottom: 1rem;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem;">
+      <label style="margin-bottom: 0;">Divisions</label>
+      <div style="display: flex; gap: .5rem;">
+        <button class="btn-secondary btn-sm" onclick="addDivisionRow()">+ Add Division</button>
+        <button class="btn-secondary btn-sm" onclick="loadSample()">Load Sample Data</button>
+      </div>
     </div>
-    <div>
-      <label for="gamesPerTeam">Games per Team</label>
-      <input type="number" id="gamesPerTeam" min="1" max="100" value="">
-    </div>
-    <div>
-      <label for="leagueSplit" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-        <input type="checkbox" id="leagueSplit">
-        Split into AL / NL
-      </label>
-    </div>
-    <div style="align-self: flex-end;">
-      <button class="btn-secondary btn-sm" onclick="loadSample()">Load Sample Data</button>
-    </div>
+    <table class="division-table" id="divisionTable">
+      <thead><tr>
+        <th>Name</th>
+        <th>Teams</th>
+        <th>Games/Team</th>
+        <th>AL/NL</th>
+        <th>Fields</th>
+        <th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
   </div>
   <label for="tsvInput">Field Availability (TSV — paste from spreadsheet or upload file)</label>
   <div class="file-upload-row">
@@ -67,30 +68,7 @@
 <div id="errorBox" class="error hidden"></div>
 <div id="statusBox" class="status hidden"></div>
 
-<div id="results" class="hidden">
-  <div class="card">
-    <h2>Constraint Scores</h2>
-    <div id="scoreGrid" class="score-grid"></div>
-  </div>
-
-  <div class="card">
-    <h2>Per-Team Summary</h2>
-    <div id="teamSummary"></div>
-  </div>
-
-  <div class="card">
-    <h2>Schedule</h2>
-    <div id="scheduleTable"></div>
-    <div class="actions">
-      <button class="btn-secondary btn-sm" onclick="downloadCSV()">Download CSV</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Team Heatmap</h2>
-    <div id="heatmap" style="overflow-x:auto;"></div>
-  </div>
-</div>
+<div id="results" class="hidden"></div>
 
 <script src="scheduler.js"></script>
 <script src="annealing.js"></script>

@@ -996,9 +996,14 @@ function scoreDetails(schedule, numTeams, allSlots) {
       const wg = getWeekendGroup(g.date);
       if (wg) teamWeekends.add(wg);
     }
+    let sitouts = 0;
     for (const wg of activeWeekends) {
-      if (!teamWeekends.has(wg)) weekendSitouts++;
+      if (!teamWeekends.has(wg)) sitouts++;
     }
+    // If a team has fewer games than weekends, some sitouts are unavoidable
+    const totalGames = teamGames.get(t).length;
+    const expectedSitouts = Math.max(0, numActiveWeekends - totalGames);
+    weekendSitouts += Math.max(0, sitouts - expectedSitouts);
   }
 
   let weekendDoubleHeaders = 0;

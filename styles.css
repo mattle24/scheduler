@@ -82,6 +82,29 @@ th { background: #f3f4f6; font-weight: 600; font-size: .8rem; text-transform: up
 .heatmap-cell.active { background: #2563eb; border-color: #1e40af; }
 .heatmap-cell.inactive { background: #fff; }
 
+/* Division table */
+.division-table { width: 100%; border-collapse: collapse; margin-bottom: .5rem; }
+.division-table th { font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; padding: .3rem .5rem; text-align: left; background: #f3f4f6; }
+.division-table td { padding: .35rem .5rem; vertical-align: middle; border-bottom: 1px solid var(--border); }
+.division-table input[type="text"] { width: 110px; padding: .3rem .5rem; border: 1px solid var(--border); border-radius: 4px; font-size: .85rem; }
+.division-table input[type="number"] { width: 65px; padding: .3rem .5rem; font-size: .85rem; }
+.division-table input[type="checkbox"] { margin: 0; }
+.field-checkboxes { display: flex; flex-wrap: wrap; gap: .15rem .6rem; }
+.field-checkboxes label { font-weight: 400; font-size: .8rem; display: flex; align-items: center; gap: .2rem; cursor: pointer; white-space: nowrap; }
+.field-hint { font-size: .75rem; color: var(--muted); font-style: italic; }
+.btn-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; padding: .2rem .4rem; line-height: 1; }
+.btn-remove:hover { color: var(--danger); }
+
+/* Division result sections */
+.division-section { margin-bottom: 2rem; }
+.division-section > h2 { font-size: 1.5rem; font-weight: 700; border-bottom: 3px solid var(--primary); padding-bottom: .35rem; margin-bottom: 1rem; }
+
+/* Floating TOC */
+.results-toc { position: sticky; top: 0; z-index: 20; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: .5rem 1rem; margin-bottom: 1rem; box-shadow: var(--shadow); display: flex; flex-wrap: wrap; gap: .25rem .75rem; align-items: center; }
+.results-toc .toc-label { font-size: .75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.results-toc a { font-size: .85rem; font-weight: 600; color: var(--primary); text-decoration: none; padding: .2rem .4rem; border-radius: 4px; }
+.results-toc a:hover { background: #eff6ff; }
+
 /* Penalty weights panel */
 .penalty-section { margin-top: 1rem; }
 .penalty-header { cursor: pointer; font-weight: 600; font-size: .85rem; color: var(--muted); user-select: none; padding: .5rem 0; }
