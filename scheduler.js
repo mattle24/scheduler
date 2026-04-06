@@ -697,6 +697,10 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
     throw new Error(`Not enough slots: need ${totalGames} games but only ${slots.length} slots available.`);
   }
 
+  // Scarcity map: sortKey → number of other divisions that also need this slot
+  // Higher values mean we should avoid claiming this slot if alternatives exist
+  const slotScarcity = (precomputedMatchups && precomputedMatchups.slotScarcity) || null;
+
   // Precompute date-to-day-number map to avoid Date allocations in hot loops
   const dateToDay = new Map();
   for (const s of slots) {
@@ -858,13 +862,14 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
           if (fallback.length === 0) { failed = true; break; }
           bestSlot = fallback[Math.floor(Math.random() * fallback.length)];
         } else {
-          // Spread across Sat and Sun, prefer underused fields
+          // Spread across Sat and Sun, prefer underused fields, avoid scarce shared slots
           let bestScore = -Infinity;
           bestSlot = eligible[0];
           for (const s of eligible) {
             let score = -(dateGameCount.get(s.date) || 0);
             score -= (teamField.get(home).get(s.field) || 0) * 0.3;
             score -= (teamField.get(away).get(s.field) || 0) * 0.3;
+            if (slotScarcity) score -= (slotScarcity.get(s.sortKey) || 0) * 0.5;
             score += Math.random() * 0.3;
             if (score > bestScore) { bestScore = score; bestSlot = s; }
           }
@@ -928,6 +933,9 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
         // Prefer underused fields for both teams
         score -= (teamField.get(home).get(s.field) || 0) * 2;
         score -= (teamField.get(away).get(s.field) || 0) * 2;
+
+        // Avoid slots that other divisions also need
+        if (slotScarcity) score -= (slotScarcity.get(s.sortKey) || 0) * 2;
 
         score += Math.random() * 0.5;
 
@@ -1005,6 +1013,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
 function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
   options = options || {};
   const leagueSplit = options.leagueSplit || false;
+  const slotScarcity = options.slotScarcity || null;
 
   // Determine weekend count from slots so selectMatchups uses the same pairs as scheduling
   const weekendGroupSet = new Set();
@@ -1032,7 +1041,7 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
 
   const haGames = assignHomeAway(allPairs, numTeams);
   const games = haGames.map(g => ({ home: g.home, away: g.away }));
-  return tryBuildSchedule(games, slots, numTeams, onProgress, { weekendRounds, weekdayGames }).then(result => {
+  return tryBuildSchedule(games, slots, numTeams, onProgress, { weekendRounds, weekdayGames, slotScarcity }).then(result => {
     rebalanceHomeAway(result.schedule, numTeams, gamesPerTeam);
     result.details = scoreDetails(result.schedule, numTeams, slots);
     return result;

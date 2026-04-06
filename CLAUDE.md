@@ -21,9 +21,14 @@ Divisions are scheduled sequentially in row order (priority order). For each div
 
 Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely identifies each slot.
 
+**Scarcity-aware claiming**: Before the sequential loop, a `slotScarcity` map is computed — for each slot, the number of *other* divisions that can also use it (based on field overlap). This is passed through `buildSchedule` → `tryBuildSchedule` and used as a soft penalty during slot selection, nudging divisions away from slots that are scarce for other divisions.
+
+**Iterative re-scheduling**: After the initial sequential pass (when >1 division), up to 3 rounds of re-optimization run. Each round releases one division's slots, re-schedules it with the freed pool, and accepts only if the division's weighted score improves. Stops early if no division improves in a round.
+
 ### Single-Division Pipeline (scheduler.js)
 1. `buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options)` (entry point)
    - `options.leagueSplit` — when true, uses AL/NL league-aware matchup selection
+   - `options.slotScarcity` — Map of sortKey → scarcity count, used to penalize shared slots
 2. `generateTournamentRounds()` — circle/polygon algorithm, produces perfect matchings
 3. `selectMatchups()` — splits rounds into weekend (full rounds) and weekday (remainder)
    - OR `selectMatchupsWithLeagues()` — layered fill: intra-league pairs first, then inter-league, alternating layers

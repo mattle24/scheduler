@@ -259,6 +259,21 @@ function generate() {
       const claimedKeys = new Set();
       const divisionResults = [];
 
+      // Strategy 2: Compute slot scarcity — how many divisions can use each slot
+      // Higher scarcity = more divisions competing for this slot, so current division
+      // should prefer alternatives when available
+      const slotScarcity = new Map();
+      if (divs.length > 1) {
+        for (const s of allSlots) {
+          let divCount = 0;
+          for (const d of divs) {
+            if (d.fields.includes(s.field)) divCount++;
+          }
+          // Only record scarcity for shared slots (2+ divisions)
+          if (divCount > 1) slotScarcity.set(s.sortKey, divCount - 1);
+        }
+      }
+
       for (let i = 0; i < divs.length; i++) {
         const div = divs[i];
         const divLabel = `Division "${div.name}" (${i + 1}/${divs.length})`;
@@ -279,7 +294,7 @@ function generate() {
           document.getElementById('progressFill').style.width = percent + '%';
           const label = score === Infinity ? percent + '%' : percent + '% — score: ' + score.toFixed(1);
           document.getElementById('progressLabel').textContent = label;
-        }, { leagueSplit: div.leagueSplit });
+        }, { leagueSplit: div.leagueSplit, slotScarcity });
 
         const finalSchedule = result.schedule;
         const finalDetails = scoreDetails(finalSchedule, div.numTeams, divSlots);
@@ -297,6 +312,79 @@ function generate() {
           greedyDetails: result.details,
           slots: divSlots
         });
+      }
+
+      // Strategy 1: Iterative re-scheduling — release each division's slots and
+      // re-schedule it with knowledge of what other divisions actually claimed.
+      // Accept the new schedule only if the global score improves.
+      if (divs.length > 1) {
+        const MAX_ROUNDS = 3;
+        for (let round = 0; round < MAX_ROUNDS; round++) {
+          let improved = false;
+
+          // Compute global score before this round
+          let globalScoreBefore = 0;
+          for (const dr of divisionResults) globalScoreBefore += weightedScore(dr.details);
+
+          for (let i = 0; i < divisionResults.length; i++) {
+            const dr = divisionResults[i];
+            const div = dr.division;
+            const divLabel = `Re-optimizing "${div.name}" (round ${round + 1}/${MAX_ROUNDS})`;
+
+            // Release this division's slots
+            const releasedKeys = new Set();
+            for (const g of dr.schedule) {
+              const key = g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field;
+              claimedKeys.delete(key);
+              releasedKeys.add(key);
+            }
+
+            // Re-filter slots for this division (its fields, minus other divisions' claims)
+            const divSlots = allSlots.filter(s =>
+              div.fields.includes(s.field) && !claimedKeys.has(s.sortKey)
+            );
+
+            statusBox.innerHTML = `
+              <div>${divLabel}</div>
+              <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+              <div class="progress-label" id="progressLabel">0%</div>`;
+
+            const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, (pct, score) => {
+              const percent = Math.round(pct * 100);
+              document.getElementById('progressFill').style.width = percent + '%';
+              const label = score === Infinity ? percent + '%' : percent + '% — score: ' + score.toFixed(1);
+              document.getElementById('progressLabel').textContent = label;
+            }, { leagueSplit: div.leagueSplit, slotScarcity });
+
+            const newSchedule = result.schedule;
+            const newDetails = scoreDetails(newSchedule, div.numTeams, divSlots);
+
+            // Compare: does replacing this division's schedule improve global score?
+            const newDivScore = weightedScore(newDetails);
+            const oldDivScore = weightedScore(dr.details);
+
+            if (newDivScore < oldDivScore) {
+              // Accept: update division result and claim new slots
+              divisionResults[i] = {
+                division: div,
+                schedule: newSchedule,
+                details: newDetails,
+                greedyDetails: result.details,
+                slots: divSlots
+              };
+              for (const g of newSchedule) {
+                const key = g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field;
+                claimedKeys.add(key);
+              }
+              improved = true;
+            } else {
+              // Reject: re-claim original slots
+              for (const key of releasedKeys) claimedKeys.add(key);
+            }
+          }
+
+          if (!improved) break; // No division improved — converged
+        }
       }
 
       lastCSV = formatMultiDivisionCSV(divisionResults);
