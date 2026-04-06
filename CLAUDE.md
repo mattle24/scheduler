@@ -7,9 +7,8 @@ Whenever you make a change, check whether you need to update CLAUDE.md (this fil
 
 ## Files
 - **scheduler.js** (~1100 lines) — Core engine: TSV parsing, round-robin tournament generation, matchup selection (standard + AL/NL league-aware), home/away assignment, greedy schedule builder, scoring/penalty system
-- **annealing.js** (~230 lines) — Simulated annealing optimizer: swap and relocate moves with hard constraint checks (same-day conflict, 3-consecutive-day limit)
 - **ui.js** (~370 lines) — Division management UI, multi-division generate loop, per-division rendering (score cards, team summary, schedule table, heatmap), CSV export, penalty weight sync
-- **index.html** — Minimal shell with division table, TSV input, penalty weights, and dynamic results container. Loads: styles.css, scheduler.js, annealing.js, ui.js
+- **index.html** — Minimal shell with division table, TSV input, penalty weights, and dynamic results container. Loads: styles.css, scheduler.js, ui.js
 - **styles.css** — All styling including CSS-only tooltips and heatmap
 
 ## Architecture / Pipeline
@@ -30,7 +29,6 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
    - OR `selectMatchupsWithLeagues()` — layered fill: intra-league pairs first, then inter-league, alternating layers
 4. `assignHomeAway()` — greedy + 2 repair passes (per-matchup balance, then overall ±1)
 5. `tryBuildSchedule()` — Phase 1: weekend rounds to weekend slots; Phase 2: weekday greedy assignment. 200 random attempts, keeps best.
-6. `anneal()` — simulated annealing with swap/relocate moves, linear cooling
 
 ## Key Data Structures
 - **Slot**: `{ date, dayOfWeek, weekendGroup, week, field, time, sortKey }`
@@ -136,14 +134,7 @@ Hard constraints are checked inline via `hasConsecutiveDays`, `hasEarlySeasonCon
 | `timeDistribution` | Variance of time-bucket counts per team |
 | `fieldBalance` | Variance of field-assignment counts per team |
 
-### Simulated Annealing
+### Why No Simulated Annealing
 
-`anneal` runs `max(5000, numGames * 80)` iterations with linear cooling from `T_start = 0.3 * initialScore`. Two move types with 50/50 probability:
-
-- **Swap**: Exchange the slot properties (date/time/field) of two random games. `usedSlots` is invariant.
-- **Relocate**: Move a random game to a random unused slot (up to 20 rejection-sampling attempts). Updates `usedSlots`.
-
-Both moves check hard constraints on only the affected teams (2 or 4), then accept via the Metropolis criterion: `delta < 0` or `random() < exp(-delta / T)`. The best-ever schedule is tracked separately from the current state.
-
-Execution is chunked into batches of 500 with `setTimeout(0)` yields to keep the UI responsive, with progress callbacks for the progress bar.
+A simulated annealing step was tested (swap and relocate moves with Metropolis acceptance). Diagnostic counters showed ~76% of moves were rejected by hard constraints, and the remaining accepted moves produced near-zero net improvement — the greedy builder's 200-attempt best-of approach already reaches a local optimum that single-move perturbations can't escape. SA was removed since it added runtime without improving scores.
 

@@ -281,19 +281,7 @@ function generate() {
           document.getElementById('progressLabel').textContent = label;
         }, { leagueSplit: div.leagueSplit });
 
-        // Phase 2: Anneal
-        statusBox.innerHTML = `
-          <div>${divLabel}: Optimizing schedule...</div>
-          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-          <div class="progress-label" id="progressLabel">0%</div>`;
-
-        const refined = await anneal(result.schedule, divSlots, div.numTeams, (pct, score) => {
-          const percent = Math.round(pct * 100);
-          document.getElementById('progressFill').style.width = percent + '%';
-          document.getElementById('progressLabel').textContent = percent + '% — score: ' + score.toFixed(1);
-        });
-
-        const finalSchedule = refined.schedule;
+        const finalSchedule = result.schedule;
         const finalDetails = scoreDetails(finalSchedule, div.numTeams, divSlots);
 
         // Claim the slots used by this division
