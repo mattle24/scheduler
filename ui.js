@@ -73,6 +73,35 @@ function restoreState(state) {
   }
 }
 
+function clearInputs() {
+  // Reset divisions to one empty row
+  const tbody = document.querySelector('#divisionTable tbody');
+  tbody.innerHTML = '';
+  cachedFieldNames = [];
+  addDivisionRow();
+
+  // Clear TSV
+  document.getElementById('tsvInput').value = '';
+  document.getElementById('fileName').textContent = '';
+
+  // Reset penalty weights to defaults
+  const defaults = {
+    weekendSitouts: 12, weekdayBackToBack: 10, weekendDoubleHeaders: 5,
+    crossBoundaryBTB: 7, gapVariance: 6, rollingDensity: 9, sixDayDensity: 10,
+    shortGapPenalty: 3, timeDistribution: 3, fieldBalance: 4
+  };
+  for (const key in defaults) {
+    const el = document.getElementById('w_' + key);
+    if (el) el.value = defaults[key];
+  }
+
+  // Clear results and errors
+  document.getElementById('results').classList.add('hidden');
+  clearError();
+
+  localStorage.removeItem(STORAGE_KEY);
+}
+
 let saveTimer;
 function debouncedSave() {
   clearTimeout(saveTimer);
