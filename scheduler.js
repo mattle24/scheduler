@@ -853,6 +853,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
 
   let bestSchedule = null;
   let bestScore = Infinity;
+  let lastFailureInfo = null; // diagnostic info from the most recent failed attempt
 
   function runAttempt(attempt) {
     // Reset the H/A counter each attempt
@@ -927,7 +928,11 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
         let bestSlot;
         if (eligible.length === 0) {
           const fallback = groupSlots.filter(s => !taken.has(s.sortKey));
-          if (fallback.length === 0) { failed = true; break; }
+          if (fallback.length === 0) {
+            failed = true;
+            lastFailureInfo = { phase: 'weekend', stuckGame: `${game.home + 1}B vs ${game.away + 1}B`, totalWeekendSlots: groupSlots.length, weekendGroup: wg };
+            break;
+          }
           bestSlot = fallback[Math.floor(Math.random() * fallback.length)];
         } else {
           // Spread across Sat and Sun, prefer underused fields, avoid scarce shared slots
@@ -1048,7 +1053,32 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
         }
       }
 
-      if (minEligible === 0) { failed = true; break; }
+      if (minEligible === 0) {
+        failed = true;
+        // Diagnose why the most-constrained game is stuck
+        const stuckPair = unplacedWeekday[bestGameIdx];
+        const tA = stuckPair[0], tB = stuckPair[1];
+        const reasons = { sameDay: 0, threeInFour: 0, weekdayPerWeek: 0, taken: 0 };
+        let availableSlots = 0;
+        for (const s of weekdaySlots) {
+          if (taken.has(s.sortKey)) { reasons.taken++; continue; }
+          availableSlots++;
+          if (teamDay.get(tA).has(s.date) || teamDay.get(tB).has(s.date)) { reasons.sameDay++; continue; }
+          const slotDayNum = dateToDay.get(s.date);
+          if (hasThreeInFourDays(teamDaySorted.get(tA), slotDayNum) || hasThreeInFourDays(teamDaySorted.get(tB), slotDayNum)) { reasons.threeInFour++; continue; }
+          const wdwk = dateToWeekdayWeek.get(s.date);
+          if (wdwk && ((teamWeekdayWeek.get(tA).get(wdwk) || 0) >= 1 || (teamWeekdayWeek.get(tB).get(wdwk) || 0) >= 1)) { reasons.weekdayPerWeek++; }
+        }
+        lastFailureInfo = {
+          phase: 'weekday',
+          stuckGame: `${tA + 1}B vs ${tB + 1}B`,
+          remainingGames: unplacedWeekday.length,
+          availableSlots,
+          reasons,
+          totalWeekdaySlots: weekdaySlots.length,
+        };
+        break;
+      }
 
       const pair = unplacedWeekday.splice(bestGameIdx, 1)[0];
       const game = getHomeAway(pair[0], pair[1]);
@@ -1142,7 +1172,23 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
         setTimeout(step, 0);
       } else {
         if (!bestSchedule) {
-          reject(new Error('Could not build a valid schedule after ' + NUM_ATTEMPTS + ' attempts. Try adding more slots or reducing games per team.'));
+          let msg = 'Could not build a valid schedule after ' + NUM_ATTEMPTS + ' attempts.';
+          if (lastFailureInfo) {
+            const f = lastFailureInfo;
+            if (f.phase === 'weekend') {
+              msg += ` No slots left on weekend ${f.weekendGroup} to place game ${f.stuckGame} (${f.totalWeekendSlots} slots on that weekend, all taken).`;
+              msg += ' Try adding more weekend slots or reducing games per team.';
+            } else {
+              msg += ` Stuck placing weekday game ${f.stuckGame} (${f.remainingGames} games left).`;
+              msg += ` ${f.availableSlots} of ${f.totalWeekdaySlots} weekday slots were untaken,`;
+              msg += ` but all were blocked: ${f.reasons.sameDay} by same-day conflict,`;
+              msg += ` ${f.reasons.threeInFour} by 3-games-in-4-days limit,`;
+              msg += ` ${f.reasons.weekdayPerWeek} by 1-weekday-per-week limit.`;
+            }
+          } else {
+            msg += ' Try adding more slots or reducing games per team.';
+          }
+          reject(new Error(msg));
         } else {
           resolve({ schedule: bestSchedule, score: bestScore, details: scoreDetails(bestSchedule, numTeams, slots) });
         }
