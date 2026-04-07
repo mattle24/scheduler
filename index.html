@@ -64,6 +64,21 @@
   <div class="actions">
     <button class="btn-primary" onclick="generate()">Generate Schedule</button>
   </div>
+  <div class="explainer-section">
+    <div class="penalty-header" onclick="this.classList.toggle('open'); document.getElementById('explainerBody').classList.toggle('hidden')">
+      <span>&#9654;</span> How does the scheduler work?
+    </div>
+    <div id="explainerBody" class="penalty-body hidden">
+      <div class="explainer-content">
+        <p><strong>1. Build the matchups.</strong> First, the scheduler figures out who plays whom. It generates a balanced set of matchups so every team plays the right number of games and faces a good mix of opponents. If a division uses the AL/NL league split, it makes sure teams play everyone in their own league before scheduling cross-league games.</p>
+        <p><strong>2. Assign home and away.</strong> Each matchup gets a home and away team, balanced so no team is stuck at home (or away) too often — both overall and against each individual opponent.</p>
+        <p><strong>3. Place games on the calendar.</strong> The scheduler tries 200 different arrangements, placing games into available time slots. Weekend games go first (since weekend availability is most limited), then weekday games fill in around them. It respects hard rules — no team plays twice in one day, no team plays 3 games in 4 days, and at most one weekday game per week. Among legal options, it picks slots that spread games out evenly across times and fields.</p>
+        <p><strong>4. Fine-tune with simulated annealing.</strong> The best arrangement from step 3 gets polished. The scheduler makes thousands of small tweaks — swapping game times, moving games to different slots — and keeps changes that improve the schedule. This is like shaking a jigsaw puzzle gently to settle pieces into better positions.</p>
+        <p><strong>5. Score and compare.</strong> Every schedule is scored on things like: Are games spread evenly across weekends? Do teams get a fair mix of time slots and fields? Are there awkward back-to-back situations? You can adjust how much each factor matters using the penalty weights above.</p>
+        <p><strong>6. Coordinate across divisions.</strong> When scheduling multiple age groups, divisions are scheduled in priority order (top to bottom in the table). After the first pass, the scheduler goes back and re-optimizes each division, trying to group games from the same division together on each field — which makes life easier for umpires and families.</p>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="errorBox" class="error hidden"></div>

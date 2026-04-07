@@ -116,6 +116,12 @@ th { background: #f3f4f6; font-weight: 600; font-size: .8rem; text-transform: up
 .results-toc a { font-size: .85rem; font-weight: 600; color: var(--primary); text-decoration: none; padding: .2rem .4rem; border-radius: 4px; }
 .results-toc a:hover { background: #eff6ff; }
 
+/* Explainer section */
+.explainer-section { margin-top: .75rem; }
+.explainer-content p { font-size: .8rem; color: #374151; line-height: 1.5; margin: 0 0 .6rem; }
+.explainer-content p:last-child { margin-bottom: 0; }
+.explainer-content { padding: .5rem 0; }
+
 /* Penalty weights panel */
 .penalty-section { margin-top: 1rem; }
 .penalty-header { cursor: pointer; font-weight: 600; font-size: .85rem; color: var(--muted); user-select: none; padding: .5rem 0; }
