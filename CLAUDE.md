@@ -33,7 +33,7 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
 3. `selectMatchups()` — splits rounds into weekend (full rounds) and weekday (remainder)
    - OR `selectMatchupsWithLeagues()` — layered fill: intra-league pairs first, then inter-league, alternating layers
 4. `assignHomeAway()` — greedy + 2 repair passes (per-matchup balance, then overall ±1)
-5. `tryBuildSchedule()` — Phase 1: weekend rounds to weekend slots; Phase 2: weekday greedy assignment. 200 random attempts, keeps best.
+5. `tryBuildSchedule()` — Phase 1: weekend rounds to weekend slots; Phase 1.5: overflow weekday games into unused weekend slots (only where neither team already plays that weekend); Phase 2: weekday MRV greedy (most-constrained-game-first with LCV slot scoring). 200 random attempts, keeps best.
 6. `annealSchedule()` — post-greedy simulated annealing: same-date slot swaps (time+field) and cross-date slot swaps with Metropolis acceptance. 2000 iterations, targets timeslot ordering and other soft penalties.
 
 ## Key Data Structures
@@ -131,7 +131,8 @@ For **AL/NL league splits** (scheduler.js:245-379), matchup generation uses a la
 `tryBuildSchedule` runs 200 attempts with randomized round-to-weekend mappings and shuffled weekday game order. Each attempt:
 
 - **Phase 1 (weekends)**: For each weekend group, assigns shuffled round games to eligible slots. Slot selection scores by: `-dateGameCount` (spread across Sat/Sun) and `-teamFieldCount * 0.3` (field balance), plus random jitter.
-- **Phase 2 (weekdays)**: Greedy slot selection scores by: `min distance to nearest existing game` (fill gaps), `-weekCount * 5` (avoid clustering in one week), `-teamFieldCount * 2` (field balance), plus jitter.
+- **Phase 1.5 (weekend overflow)**: Attempts to place weekday-pool games into unused weekend slots, but only where neither team already plays that weekend (avoids double-headers). This creates slack for Phase 2 when weekday capacity is tight.
+- **Phase 2 (weekdays)**: Uses MRV (minimum remaining values) ordering — dynamically picks the unplaced game with fewest eligible slots first, preventing constrained games from being stranded. Slot selection scores by: `min distance to nearest existing game` (fill gaps), `-weekCount * 5` (avoid clustering in one week), `-teamFieldCount * 2` (field balance), LCV penalty (penalizes slots in weeks that constrain remaining games), plus jitter.
 
 Hard constraints are checked inline via `hasThreeInFourDays` and `hasWeekdayGameThisWeek`. If no eligible slot exists for a weekday game, the attempt fails.
 

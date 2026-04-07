@@ -926,11 +926,91 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
 
     if (failed) return;
 
-    // Phase 2: Assign weekday games via greedy
+    // Phase 1.5: Weekend overflow — place weekday games into unused weekend slots
+    // This reduces pressure on Phase 2 when weekday capacity is near the theoretical max.
+    const remainingWeekdayGames = [];
     for (const pair of shuffledWeekdayGames) {
+      const tA = pair[0], tB = pair[1];
+
+      // Check all unused weekend slots eligible for this game (using raw teams, not H/A)
+      let overflowBest = null;
+      let overflowBestScore = -Infinity;
+      for (const [wg, groupSlots] of weekendSlotsByGroup) {
+        for (const s of groupSlots) {
+          if (taken.has(s.sortKey)) continue;
+          if (teamDay.get(tA).has(s.date) || teamDay.get(tB).has(s.date)) continue;
+          const slotDayNum = dateToDay.get(s.date);
+          if (hasThreeInFourDays(teamDaySorted.get(tA), slotDayNum) || hasThreeInFourDays(teamDaySorted.get(tB), slotDayNum)) continue;
+          // Only overflow into weekends where neither team already has a game (avoid double-headers)
+          const hWgCount = teamWeekend.get(tA).get(wg) || 0;
+          const aWgCount = teamWeekend.get(tB).get(wg) || 0;
+          if (hWgCount >= 1 || aWgCount >= 1) continue;
+          let score = 0;
+          score -= (dateGameCount.get(s.date) || 0);
+          score -= (teamField.get(tA).get(s.field) || 0) * 0.3;
+          score -= (teamField.get(tB).get(s.field) || 0) * 0.3;
+          if (slotScarcity) score -= (slotScarcity.get(s.sortKey) || 0) * 0.5;
+          score += Math.random() * 0.3;
+          if (score > overflowBestScore) { overflowBestScore = score; overflowBest = s; }
+        }
+      }
+
+      if (overflowBest) {
+        // Only resolve H/A when actually placing the game
+        const game = getHomeAway(tA, tB);
+        taken.add(overflowBest.sortKey);
+        dateGameCount.set(overflowBest.date, (dateGameCount.get(overflowBest.date) || 0) + 1);
+        recordAssignment(schedule, overflowBest, game.home, game.away, teamDay, teamDaySorted, teamWeekend, teamWeek, teamWeekdayWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff, dateToDay, dateToWeekdayWeek, insertSorted);
+        if (overflowBest.weekendGroup) {
+          for (const t of [game.home, game.away]) {
+            const wgCount = teamWeekend.get(t).get(overflowBest.weekendGroup) || 0;
+            if (wgCount > 1) runningPenalty += WEIGHTS.weekendDoubleHeaders;
+          }
+        }
+      } else {
+        remainingWeekdayGames.push(pair);
+      }
+    }
+
+    if (runningPenalty > bestScore) return;
+
+    // Phase 2: Assign weekday games via MRV greedy
+    // Instead of iterating in random order, dynamically pick the most constrained game first
+    const unplacedWeekday = remainingWeekdayGames.slice();
+    while (unplacedWeekday.length > 0) {
+      // Find the game with the fewest eligible slots (MRV)
+      let minEligible = Infinity;
+      let bestGameIdx = 0;
+      for (let i = 0; i < unplacedWeekday.length; i++) {
+        const pair = unplacedWeekday[i];
+        const tA = pair[0], tB = pair[1];
+
+        let count = 0;
+        for (const s of weekdaySlots) {
+          if (taken.has(s.sortKey)) continue;
+          if (teamDay.get(tA).has(s.date) || teamDay.get(tB).has(s.date)) continue;
+          const slotDayNum = dateToDay.get(s.date);
+          if (hasThreeInFourDays(teamDaySorted.get(tA), slotDayNum) || hasThreeInFourDays(teamDaySorted.get(tB), slotDayNum)) continue;
+          const wdwk = dateToWeekdayWeek.get(s.date);
+          if (wdwk && ((teamWeekdayWeek.get(tA).get(wdwk) || 0) >= 1 || (teamWeekdayWeek.get(tB).get(wdwk) || 0) >= 1)) continue;
+          count++;
+          if (count >= minEligible) break; // can't beat current best, stop counting
+        }
+
+        if (count < minEligible) {
+          minEligible = count;
+          bestGameIdx = i;
+          if (count === 0) break; // can't do better, fail fast
+        }
+      }
+
+      if (minEligible === 0) { failed = true; break; }
+
+      const pair = unplacedWeekday.splice(bestGameIdx, 1)[0];
       const game = getHomeAway(pair[0], pair[1]);
       const { home, away } = game;
 
+      // Re-filter eligible slots for the chosen game
       const eligible = weekdaySlots.filter(s => {
         if (taken.has(s.sortKey)) return false;
         if (teamDay.get(home).has(s.date) || teamDay.get(away).has(s.date)) return false;
@@ -964,6 +1044,18 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
 
         // Avoid slots that other divisions also need
         if (slotScarcity) score -= (slotScarcity.get(s.sortKey) || 0) * 2;
+
+        // LCV: penalize slots in weeks that would constrain remaining games
+        const sWdwk = dateToWeekdayWeek.get(s.date);
+        if (sWdwk && unplacedWeekday.length <= 20) {
+          let futureImpact = 0;
+          for (const rp of unplacedWeekday) {
+            const ra = rp[0], rb = rp[1];
+            if (ra === home || ra === away || rb === home || rb === away) continue;
+            if ((teamWeekdayWeek.get(ra).get(sWdwk) || 0) >= 1 || (teamWeekdayWeek.get(rb).get(sWdwk) || 0) >= 1) futureImpact++;
+          }
+          score -= futureImpact * 0.5;
+        }
 
         score += Math.random() * 0.5;
 
