@@ -76,7 +76,8 @@ th { background: #f3f4f6; font-weight: 600; font-size: .8rem; text-transform: up
 /* Heatmap */
 .heatmap-table { border-collapse: collapse; font-size: .75rem; }
 .heatmap-table th, .heatmap-table td { padding: 2px 4px; text-align: center; }
-.heatmap-table th.date-header { writing-mode: vertical-lr; transform: rotate(180deg); font-size: .7rem; }
+.heatmap-table th.date-header { writing-mode: vertical-lr; transform: rotate(180deg); font-size: .7rem; font-weight: 400; }
+.heatmap-table th.date-header.weekend { font-weight: 700; color: #2563eb; }
 .heatmap-table td.team-name { white-space: nowrap; text-align: left; font-weight: 600; font-size: .8rem; }
 .heatmap-cell { width: 18px; height: 18px; border: 1px solid #e5e7eb; }
 .heatmap-cell.active { background: rgb(45, 90, 39); border-color: #000; }

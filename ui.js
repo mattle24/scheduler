@@ -682,8 +682,10 @@ function renderHeatmapInto(container, schedule, numTeams) {
   let html = '<table class="heatmap-table"><thead><tr><th></th>';
   for (const date of dates) {
     const d = new Date(date + 'T00:00:00');
+    const dow = d.getDay();
+    const isWeekend = dow === 0 || dow === 6;
     const label = `${d.getMonth() + 1}/${d.getDate()}`;
-    html += `<th class="date-header">${label}</th>`;
+    html += `<th class="date-header${isWeekend ? ' weekend' : ''}">${label}</th>`;
   }
   html += '</tr></thead><tbody>';
 
