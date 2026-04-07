@@ -119,18 +119,11 @@ function syncWeights() {
   }
 }
 
-// Default weights — matches the initial WEIGHTS values in scheduler.js
-const DEFAULT_WEIGHTS = {
-  divisionClustering: 4, earlySeasonDensity: 8, endOfSeasonDensity: 8,
-  fieldBalance: 4, fieldContinuity: 2, gapVariance: 6, satSunBalance: 4,
-  shortGapPenalty: 3, timeDistribution: 3, timeSlotSpread: 3,
-  weekendBTBTimePenalty: 3, weekendDoubleHeaders: 5, weekendSitouts: 12,
-};
 
 function resetWeights() {
-  for (const key in DEFAULT_WEIGHTS) {
+  for (const key in WEIGHTS) {
     const el = document.getElementById('w_' + key);
-    if (el) el.value = DEFAULT_WEIGHTS[key];
+    if (el) el.value = WEIGHTS[key];
   }
   debouncedSave();
 }
@@ -357,7 +350,7 @@ function generate() {
 
           // Compute global score before this round
           let globalScoreBefore = divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
-            + scoreCrossDivisionClustering(divisionResults) * (WEIGHTS.divisionClustering || 0);
+            + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0);
 
           for (let i = 0; i < divisionResults.length; i++) {
             const dr = divisionResults[i];
@@ -403,10 +396,10 @@ function generate() {
             const oldSchedule = dr.schedule;
             divisionResults[i] = { ...dr, schedule: newSchedule, details: newDetails, slots: divSlots };
             const newGlobalScore = divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
-              + scoreCrossDivisionClustering(divisionResults) * (WEIGHTS.divisionClustering || 0);
+              + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0);
             divisionResults[i] = { ...dr, schedule: oldSchedule, details: oldDetails };
             const oldGlobalScore = divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
-              + scoreCrossDivisionClustering(divisionResults) * (WEIGHTS.divisionClustering || 0);
+              + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0);
 
             if (newGlobalScore < oldGlobalScore) {
               // Accept: update division result and claim new slots
@@ -626,8 +619,6 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
       tip: 'Number of times a team plays 2+ games in the same Sat-Sun weekend. Each extra game beyond 1 counts as 1.' },
     { label: 'Early Season Density', value: details.earlySeasonDensity, min: 0,
       tip: 'Pairs of games within 2 days of each other in the first 7 days of the season.' },
-    { label: 'End of Season Density', value: details.endOfSeasonDensity, min: 0,
-      tip: 'Extra games beyond 1 per team in the last 5 days of the season.' },
     { label: 'Weekend B2B Timeslot', value: details.weekendBTBTimePenalty, min: 0,
       tip: 'Cases where 2nd day of a Fri/Sat or Sat/Sun back-to-back has an earlier timeslot than the 1st day.' },
     { label: 'Sat/Sun Balance', value: details.satSunBalance, min: 0,

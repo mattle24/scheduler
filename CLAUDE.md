@@ -35,7 +35,9 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
    - OR `selectMatchupsWithLeagues()` — layered fill: intra-league pairs first, then inter-league, alternating layers
 4. `assignHomeAway()` — greedy + 2 repair passes (per-matchup balance, then overall ±1)
 5. `tryBuildSchedule()` — Phase 1: weekend rounds to weekend slots; Phase 1.5: overflow weekday games into unused weekend slots (only where neither team already plays that weekend); Phase 2: weekday MRV greedy (most-constrained-game-first with LCV slot scoring). 200 random attempts, keeps best.
-6. `annealSchedule()` — post-greedy simulated annealing: same-date slot swaps (time+field) and cross-date slot swaps with Metropolis acceptance. 2000 iterations, targets timeslot ordering and other soft penalties.
+6. `annealSchedule()` — post-greedy simulated annealing: 4 move types, 4000 iterations (see below).
+7. `consolidateFields()` — moves 1-2 game groups from a sparse field to a same-date field with ≥ as many games, if all games can be packed consecutively and score improves.
+8. `slideCleanup()` — for each weekend (field, date) with multiple games, tries all windows of N consecutive available slots and applies the best packing. Repeats until no improvement or 100 passes.
 
 ## Key Data Structures
 - **Slot**: `{ date, dayOfWeek, weekendGroup, week, field, time, sortKey }`
@@ -47,19 +49,18 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
 
 ## Scoring System (scoreCandidate / scoreDetails)
 Weighted sum of penalties. Current weights in `WEIGHTS` global:
-- weekendSitouts (12) — team has zero games on a weekend with available slots; if a team has fewer total games than weekends, that many sitouts are forgiven
+- weekendSitouts (20) — team has zero games on a weekend with available slots; if a team has fewer total games than weekends, that many sitouts are forgiven
 - weekendDoubleHeaders (5) — 2+ games in same Sat-Sun weekend
 - gapVariance (6) — std dev of gap lengths per team
 - shortGapPenalty (3) — sum of 1/gap for all consecutive game pairs
 - timeDistribution (3) — weighted variance of weekend time-slot bucket counts per team (WKND_EARLY/WKND_MID/WKND_LATE); early and late weighted 1.5x, mid 0.5x
-- timeSlotSpread (3) — penalizes simultaneous games on the same weekend date (for umpire scheduling); counts extra games beyond 1 at each date+time combination
-- fieldBalance (4) — variance of field assignment counts per team
-- fieldContinuity (2) — gaps between same-division weekend games on the same field (umpire travel)
-- earlySeasonDensity (8) — pairs of games within 2 days in first 7 days of season
-- endOfSeasonDensity (8) — games beyond 1 per team in last 5 days of season
+- timeSlotSpread (4) — penalizes simultaneous games on the same weekend date (for umpire scheduling); counts extra games beyond 1 at each date+time combination
+- fieldBalance (2) — variance of field assignment counts per team
+- fieldContinuity (10) — gaps between same-division weekend games on the same field (umpire travel)
+- earlySeasonDensity (4) — pairs of games within 2 days in first 7 days of season
 - weekendBTBTimePenalty (3) — 2nd day of Fri/Sat or Sat/Sun b2b has earlier timeslot than 1st day
 - satSunBalance (4) — variance of proportion Saturday among weekend games per team
-- divisionClustering (4) — cross-division penalty for switching between divisions on the same field in a day; A-B-A patterns penalized 4x more than A-B switches. Computed across all divisions together via `scoreCrossDivisionClustering()`, NOT per-division in scoreDetails.
+- fieldDivisionClustering (20) — cross-division penalty for switching between divisions on the same field in a day; A-B-A patterns penalized 4x more than A-B switches. Computed across all divisions together via `scoreCrossfieldDivisionClustering()`, NOT per-division in scoreDetails.
 
 `scoreCandidate` and `weightedScore` (ui.js) both use a dynamic loop over WEIGHTS keys.
 
@@ -92,6 +93,9 @@ When a division's "AL/NL" checkbox is enabled:
 - Intra-league rounds generated via circle algorithm on each sub-league
 - Inter-league rounds generated via bipartite round-robin (round r: AL[i] vs NL[(i+r) % nlSize])
 - Hard constraint: gamesPerTeam must be >= max(alSize, nlSize) - 1
+
+## Weight Sync
+`resetWeights()` in ui.js reads directly from the `WEIGHTS` object defined in scheduler.js (no separate `DEFAULT_WEIGHTS` copy). Keep weights only in scheduler.js.
 
 ## Known Issues
 - None
@@ -146,7 +150,7 @@ Hard constraints are checked inline via `hasThreeInFourDays` and `hasWeekdayGame
 
 ### Scoring Function
 
-`scoreDetails` computes 12 penalty metrics, each multiplied by a user-adjustable weight:
+`scoreDetails` computes 11 penalty metrics, each multiplied by a user-adjustable weight:
 
 | Metric | What it measures |
 |---|---|
@@ -159,17 +163,17 @@ Hard constraints are checked inline via `hasThreeInFourDays` and `hasWeekdayGame
 | `fieldBalance` | Variance of field-assignment counts per team |
 | `fieldContinuity` | Gaps between same-division weekend games on the same field |
 | `earlySeasonDensity` | Pairs of games within 2 days in first 7 days |
-| `endOfSeasonDensity` | Games beyond 1 per team in last 5 days |
 | `weekendBTBTimePenalty` | 2nd day of weekend b2b has earlier timeslot |
 | `satSunBalance` | Variance of proportion Saturday per team |
-| `divisionClustering` | Cross-division: switches between divisions on same field/day (A-B-A penalized 4x) |
+| `fieldDivisionClustering` | Cross-division: switches between divisions on same field/day (A-B-A penalized 4x) |
 
 ### Post-Greedy Simulated Annealing
 
-`annealSchedule` runs 2000 iterations after the greedy builder. Three move types:
-- **Same-date slot swap (50%):** Swap time+field between two games on the same date. Always valid since no date-based constraints change. Directly targets timeslot ordering optimization.
-- **Cross-date slot swap (20%):** Swap full slot (date, dayOfWeek, time, field) between two games. Validated against hard constraints (3-in-4-days, weekday-per-week, no same-day).
-- **Relocate to unused slot (30%):** Move a game to any unused slot from the available pool, freeing the old slot. Validated against hard constraints. Enables the SA to close field gaps by moving games into adjacent unused time slots.
+`annealSchedule` runs 4000 iterations after the greedy builder. Four move types:
+- **Same-date slot swap (40%):** Swap time+field between two games on the same date. Always valid since no date-based constraints change.
+- **Cross-date slot swap (15%):** Swap full slot (date, dayOfWeek, time, field) between two games. Validated against hard constraints (3-in-4-days, weekday-per-week, no same-day).
+- **Relocate to unused slot (25%):** Move a game to any unused slot from the available pool. Validated against hard constraints.
+- **Slide (20%):** Move a weekend game one slot earlier/later on the same field+date. No constraint check needed (same day, date-based constraints unchanged).
 
 Uses Metropolis acceptance with geometric cooling (T: 2.0 → 0.01). Tracks used/unused slot sets for relocations. Tracks best schedule seen.
 
