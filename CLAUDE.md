@@ -35,9 +35,10 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
    - OR `selectMatchupsWithLeagues()` — layered fill: intra-league pairs first, then inter-league, alternating layers
 4. `assignHomeAway()` — greedy + 2 repair passes (per-matchup balance, then overall ±1)
 5. `tryBuildSchedule()` — Phase 1: weekend rounds to weekend slots; Phase 1.5: overflow weekday games into unused weekend slots (only where neither team already plays that weekend); Phase 2: weekday MRV greedy (most-constrained-game-first with LCV slot scoring). 200 random attempts, keeps best.
-6. `annealSchedule()` — post-greedy simulated annealing: 4 move types, 4000 iterations (see below).
+6. `annealSchedule()` — post-greedy simulated annealing: 4 move types, 3000 iterations (see below).
 7. `consolidateFields()` — moves 1-2 game groups from a sparse field to a same-date field with ≥ as many games, if all games can be packed consecutively and score improves.
 8. `slideCleanup()` — for each weekend (field, date) with multiple games, tries all windows of N consecutive available slots and applies the best packing. Repeats until no improvement or 100 passes.
+9. `rebalanceHomeAway()` — final greedy home/away rebalancing pass after all field optimization; greedy flip pass plus a 2-hop chain pass through intermediate teams.
 
 ## Key Data Structures
 - **Slot**: `{ date, dayOfWeek, weekendGroup, week, field, time, sortKey }`
@@ -134,7 +135,7 @@ For **AL/NL league splits** (scheduler.js:245-379), matchup generation uses a la
 
 ### Home/Away Assignment
 
-`assignHomeAway` uses a two-priority system: per-matchup balance (has team A hosted team B more than vice versa?) takes precedence over overall balance (does team A have too many home games total?). Two repair passes follow — pass 1 fixes per-matchup imbalances beyond ±1, pass 2 fixes overall team imbalances beyond ±1. A post-hoc `rebalanceHomeAway` does a greedy flip pass plus a 2-hop chain pass through intermediate teams at excess 0.
+`assignHomeAway` uses a two-priority system: per-matchup balance (has team A hosted team B more than vice versa?) takes precedence over overall balance (does team A have too many home games total?). Two repair passes follow — pass 1 fixes per-matchup imbalances beyond ±1, pass 2 fixes overall team imbalances beyond ±1. After all field optimization (consolidate + slide), `rebalanceHomeAway` runs a final greedy flip pass plus a 2-hop chain pass through intermediate teams at excess 0.
 
 ### Greedy Builder
 
@@ -169,7 +170,7 @@ Hard constraints are checked inline via `hasThreeInFourDays` and `hasWeekdayGame
 
 ### Post-Greedy Simulated Annealing
 
-`annealSchedule` runs 4000 iterations after the greedy builder. Four move types:
+`annealSchedule` runs 3000 iterations after the greedy builder. Four move types:
 - **Same-date slot swap (40%):** Swap time+field between two games on the same date. Always valid since no date-based constraints change.
 - **Cross-date slot swap (15%):** Swap full slot (date, dayOfWeek, time, field) between two games. Validated against hard constraints (3-in-4-days, weekday-per-week, no same-day).
 - **Relocate to unused slot (25%):** Move a game to any unused slot from the available pool. Validated against hard constraints.
