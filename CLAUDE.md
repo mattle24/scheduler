@@ -5,6 +5,8 @@ Browser-based little league baseball/softball scheduler. No server, no build too
 
 Whenever you make a change, check whether you need to update CLAUDE.md (this file) to keep it correct and up to date.
 
+Also check the methodology explainer in index.html to see if the user-facing docs should change.
+
 ## Files
 - **scheduler.js** (~1700 lines) — Core engine: TSV parsing, round-robin tournament generation, matchup selection (standard + AL/NL league-aware), home/away assignment, greedy schedule builder, scoring/penalty system, simulated annealing, cross-division scoring
 - **ui.js** (~550 lines) — Division management UI, multi-division generate loop, per-division rendering (score cards, team summary, time slot distribution, schedule table, heatmap), per-field heatmaps, CSV export, penalty weight sync
@@ -34,7 +36,7 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
 3. `selectMatchups()` — splits rounds into weekend (full rounds) and weekday (remainder)
    - OR `selectMatchupsWithLeagues()` — layered fill: intra-league pairs first, then inter-league, alternating layers
 4. `assignHomeAway()` — greedy + 2 repair passes (per-matchup balance, then overall ±1)
-5. `tryBuildSchedule()` — Phase 1: weekend rounds to weekend slots; Phase 1.5: overflow weekday games into unused weekend slots (only where neither team already plays that weekend); Phase 2: weekday MRV greedy (most-constrained-game-first with LCV slot scoring). 200 random attempts, keeps best.
+5. `tryBuildSchedule()` — Phase 1: weekend rounds to weekend slots; Phase 1.5: overflow weekday games into unused weekend slots (back-to-back Sat/Sun allowed, same-day blocked); Phase 2: weekday MRV greedy (most-constrained-game-first with LCV slot scoring). 200 random attempts, keeps best.
 6. `annealSchedule()` — post-greedy simulated annealing: 4 move types, 3000 iterations (see below).
 7. `consolidateFields()` — moves 1-2 game groups from a sparse field to a same-date field with ≥ as many games, if all games can be packed consecutively and score improves.
 8. `slideCleanup()` — for each weekend (field, date) with multiple games, tries all windows of N consecutive available slots and applies the best packing. Repeats until no improvement or 100 passes.
@@ -61,7 +63,13 @@ Weighted sum of penalties. Current weights in `WEIGHTS` global:
 - earlySeasonDensity (4) — pairs of games within 2 days in first 7 days of season
 - weekendBTBTimePenalty (3) — 2nd day of Fri/Sat or Sat/Sun b2b has earlier timeslot than 1st day
 - satSunBalance (4) — variance of proportion Saturday among weekend games per team
+- loneWeekendGame (1) — game is the only game for this division on that field+date (weekend only); computed per-division in `scoreDetails`
 - fieldDivisionClustering (20) — cross-division penalty for switching between divisions on the same field in a day; A-B-A patterns penalized 4x more than A-B switches. Computed across all divisions together via `scoreCrossfieldDivisionClustering()`, NOT per-division in scoreDetails.
+- weekendOtherDivField (4) — weekend game on a field+date that another division also uses; computed cross-division via `scoreWeekendOtherDivField()`, NOT per-division in scoreDetails.
+
+**Cross-division scoring pattern**: `fieldDivisionClustering` and `weekendOtherDivField` are both computed by standalone functions, then added to the global score in ui.js's three `globalScoreBefore`/`newGlobalScore` expressions. Neither appears in `scoreDetails` or `scoreCandidate`. Add new cross-division penalties the same way.
+
+**`clusteringScore` coupling**: The `clusteringScore` heuristic inside `tryBuildSchedule` guides greedy slot selection toward the same incentives as the formal penalties. Its magnitudes mirror `WEIGHTS.loneWeekendGame` (+1 reward for joining own games) and `WEIGHTS.weekendOtherDivField` (-4 for sharing with another division). Keep them in sync when adjusting weights.
 
 `scoreCandidate` and `weightedScore` (ui.js) both use a dynamic loop over WEIGHTS keys.
 
@@ -122,6 +130,8 @@ When a division's "AL/NL" checkbox is enabled:
 ## Glossary
 
 - "divisions" are age groups. These are akin to MLB / AAA / AA / etc.
+- **Double header**: two games for the same team on the *same day* — blocked as a hard constraint via `teamDay`
+- **Back-to-back**: a team plays on consecutive days (e.g., Sat + Sun of the same weekend) — this is *allowed*
 
 ## Advanced Scheduler Explanation
 
@@ -142,7 +152,7 @@ For **AL/NL league splits** (scheduler.js:245-379), matchup generation uses a la
 `tryBuildSchedule` runs 200 attempts with randomized round-to-weekend mappings and shuffled weekday game order. Each attempt:
 
 - **Phase 1 (weekends)**: For each weekend group, assigns shuffled round games to eligible slots. Slot selection scores by: `-dateGameCount` (spread across Sat/Sun), `-teamFieldCount * 0.3` (field balance), `clusteringScore` (prefer fields with own-division games, avoid other-division fields), plus random jitter.
-- **Phase 1.5 (weekend overflow)**: Attempts to place weekday-pool games into unused weekend slots, but only where neither team already plays that weekend (avoids double-headers). Also uses clustering scoring. Creates slack for Phase 2 when weekday capacity is tight.
+- **Phase 1.5 (weekend overflow)**: Attempts to place weekday-pool games into unused weekend slots. Back-to-back weekend games (Sat+Sun) are allowed. Also uses clustering scoring. Creates slack for Phase 2 when weekday capacity is tight.
 - **Phase 2 (weekdays)**: Uses MRV (minimum remaining values) ordering — dynamically picks the unplaced game with fewest eligible slots first, preventing constrained games from being stranded. Slot selection scores by: `min distance to nearest existing game` (fill gaps), `-weekCount * 5` (avoid clustering in one week), `-teamFieldCount * 2` (field balance), `clusteringScore` (cross-division awareness), LCV penalty (penalizes slots in weeks that constrain remaining games), plus jitter.
 
 All three phases track `divFieldDate` (this division's games per field+date) and use `otherDivFieldDate` (other divisions' games) for clustering. The `clusteringScore` function rewards fields where this division already has games (+2) and penalizes fields where other divisions have games (-1.5).

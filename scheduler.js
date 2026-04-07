@@ -1,41 +1,48 @@
 // ─── Constants ───────────────────────────────────────────────────────────────
 const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const NUM_ATTEMPTS = 200;
+const NUM_ATTEMPTS = 500;
 const WKND_BUCKET_THRESHOLDS = [630, 900]; // minutes: early < 10:30am, mid 10:30am–3pm, late >= 3pm
 const WKND_BUCKET_IMPORTANCE = { WKND_EARLY: 1.5, WKND_MID: 0.5, WKND_LATE: 1.5 };
 
 // WEIGHTS, WEIGHT_LABELS, and WEIGHT_DESCRIPTIONS alphabetical by convention
 const WEIGHTS = {
+  btbBalance: 3,
   earlySeasonDensity: 4,
   fieldBalance: 2,
   fieldContinuity: 10,
   fieldDivisionClustering: 20,
   gapVariance: 6,
+  loneWeekendGame: 1,
   satSunBalance: 4,
   shortGapPenalty: 3,
   timeDistribution: 3,
   timeSlotSpread: 4,
   weekendBTBTimePenalty: 3,
   weekendDoubleHeaders: 5,
+  weekendOtherDivField: 4,
   weekendSitouts: 20,
 };
 
 const WEIGHT_LABELS = {
+  btbBalance: 'Back-to-Back Balance (equal back-to-back games per team)',
   earlySeasonDensity: 'Early Season Density (games within 2 days in first 7 days)',
   fieldBalance: 'Field Balance (teams play even games at each field)',
   fieldContinuity: 'Field Continuity (same-division games back-to-back on a field)',
   fieldDivisionClustering: 'Field Division Clustering (same-division games grouped on field)',
   gapVariance: 'Gap Variance (difference time between games across teams)',
+  loneWeekendGame: 'Lone Weekend Game (only game for this division on a field that day)',
   satSunBalance: 'Sat/Sun Balance (equal Saturday & Sunday games per team)',
   shortGapPenalty: 'Short Gap Penalty',
   timeDistribution: 'Time Distribution (early/mid/late)',
   timeSlotSpread: 'Weekend Time Slot Spread (avoid simultaneous games on same date)',
   weekendBTBTimePenalty: 'Weekend B2B Timeslot (2nd day should be later time)',
   weekendDoubleHeaders: 'Weekend Back-to-Back',
+  weekendOtherDivField: 'Weekend Other-Division Field (sharing field+day with another division)',
   weekendSitouts: 'Weekend Sit-outs (no games in a weekend)',
 };
 
 const WEIGHT_DESCRIPTIONS = {
+  btbBalance: 'Penalizes uneven distribution of back-to-back games (consecutive days) across teams. Higher = teams have similar numbers of back-to-back days.',
   fieldDivisionClustering: 'Penalizes switching between divisions on the same field in a day. A-B-A patterns (switching back and forth) are penalized much more heavily than A-A-B (single switch).',
   earlySeasonDensity: 'Penalizes games scheduled within 2 days of each other during the first 7 days of the season.',
   fieldBalance: 'Penalizes uneven distribution of field assignments per team. Higher = teams play at each field more equally.',
@@ -47,6 +54,7 @@ const WEIGHT_DESCRIPTIONS = {
   timeSlotSpread: 'Penalizes multiple games at the same time on the same weekend date. Spreads games across distinct time slots so umpires can cover more games sequentially.',
   weekendBTBTimePenalty: 'When a team plays back-to-back weekend days, prefers a later timeslot on the second day.',
   weekendDoubleHeaders: 'Penalizes 2+ games in the same Sat–Sun weekend. Higher = at most 1 game per weekend per team.',
+  weekendOtherDivField: 'Penalizes weekend games on a field+day that another division also uses. Encourages divisions to own separate field days.',
   weekendSitouts: 'Penalizes when a team has zero games on a weekend. Higher = fewer idle weekends per team.',
 };
 
@@ -882,17 +890,18 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
     let failed = false;
     let runningPenalty = 0; // running estimate of penalties for early exit
 
-    // Clustering score: prefer fields where this division already has games, avoid other-division fields
+    // Clustering score: prefer fields where this division already has games, avoid other-division fields.
+    // Weights mirror loneWeekendGame (1) and weekendOtherDivField (4) scoring penalties.
     function clusteringScore(field, date) {
       const key = field + '|' + date;
       let score = 0;
-      // Reward: this division already has game(s) on this field+date
+      // Reward joining an existing own-division game on this field+date (avoids lone game penalty)
       const own = divFieldDate.get(key) || 0;
-      if (own > 0) score += 2;
-      // Penalize: other divisions have games on this field+date
+      if (own > 0) score += 1;
+      // Penalize sharing a field+date with another division
       if (otherDivFieldDate.size > 0) {
         const other = otherDivFieldDate.get(key) || 0;
-        if (other > 0) score -= 1.5;
+        if (other > 0) score -= 4;
       }
       return score;
     }
@@ -981,16 +990,13 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
       // Check all unused weekend slots eligible for this game (using raw teams, not H/A)
       let overflowBest = null;
       let overflowBestScore = -Infinity;
-      for (const [wg, groupSlots] of weekendSlotsByGroup) {
+      for (const [, groupSlots] of weekendSlotsByGroup) {
         for (const s of groupSlots) {
           if (taken.has(s.sortKey)) continue;
           if (teamDay.get(tA).has(s.date) || teamDay.get(tB).has(s.date)) continue;
           const slotDayNum = dateToDay.get(s.date);
           if (hasThreeInFourDays(teamDaySorted.get(tA), slotDayNum) || hasThreeInFourDays(teamDaySorted.get(tB), slotDayNum)) continue;
-          // Only overflow into weekends where neither team already has a game (avoid double-headers)
-          const hWgCount = teamWeekend.get(tA).get(wg) || 0;
-          const aWgCount = teamWeekend.get(tB).get(wg) || 0;
-          if (hWgCount >= 1 || aWgCount >= 1) continue;
+          // Same-day check already above (line 987); back-to-back Sat/Sun is allowed
           let score = 0;
           score -= (dateGameCount.get(s.date) || 0);
           score -= (teamField.get(tA).get(s.field) || 0) * 0.3;
@@ -1540,6 +1546,36 @@ function scoreDetails(schedule, numTeams, allSlots) {
     }
   }
 
+  // Back-to-back balance: variance of per-team back-to-back (consecutive day) counts
+  let btbBalance = 0;
+  {
+    const btbCounts = [];
+    for (let t = 0; t < numTeams; t++) {
+      const dates = teamSortedDates.get(t);
+      let btb = 0;
+      for (let i = 1; i < dates.length; i++) {
+        if (daysBetween(dates[i - 1], dates[i]) === 1) btb++;
+      }
+      btbCounts.push(btb);
+    }
+    const mean = btbCounts.reduce((a, b) => a + b, 0) / btbCounts.length;
+    btbBalance = btbCounts.reduce((a, v) => a + (v - mean) ** 2, 0); // sum of squared deviations (not averaged)
+  }
+
+  // Lone weekend game: games that are the only game for this division on their field+date
+  let loneWeekendGame = 0;
+  {
+    const fieldDateCount = new Map();
+    for (const g of schedule) {
+      if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
+      const key = g.field + '|' + g.date;
+      fieldDateCount.set(key, (fieldDateCount.get(key) || 0) + 1);
+    }
+    for (const count of fieldDateCount.values()) {
+      if (count === 1) loneWeekendGame++;
+    }
+  }
+
   return {
     weekendSitouts, weekendDoubleHeaders, gapVariance: Math.round(gapVariance * 100) / 100,
     shortGapPenalty: Math.round(shortGapPenalty * 100) / 100,
@@ -1548,6 +1584,8 @@ function scoreDetails(schedule, numTeams, allSlots) {
     fieldBalance: Math.round(fieldBalance * 100) / 100,
     fieldContinuity,
     earlySeasonDensity,
+    btbBalance: Math.round(btbBalance * 100) / 100,
+    loneWeekendGame,
     weekendBTBTimePenalty,
     satSunBalance: Math.round(satSunBalance * 100) / 100,
     minWeekendDH
@@ -1581,6 +1619,36 @@ function scoreCrossfieldDivisionClustering(divisionResults) {
           penalty += 3; // much heavier for back-and-forth
         }
       }
+    }
+  }
+  return penalty;
+}
+
+// Count weekend games for each division that share a field+date with any other division.
+// Returned value is the total count of such games across all divisions.
+// Note: a field+date used by N divisions contributes N games (one per division).
+function scoreWeekendOtherDivField(divisionResults) {
+  // Build map: "field|date" → set of division names with games there
+  const fieldDateDivs = new Map();
+  for (const dr of divisionResults) {
+    for (const g of dr.schedule) {
+      if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
+      const key = g.field + '|' + g.date;
+      if (!fieldDateDivs.has(key)) fieldDateDivs.set(key, new Set());
+      fieldDateDivs.get(key).add(dr.division.name);
+    }
+  }
+  // For each division, count its games on field+dates that other divisions also use
+  let penalty = 0;
+  for (const dr of divisionResults) {
+    const seen = new Set();
+    for (const g of dr.schedule) {
+      if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
+      const key = g.field + '|' + g.date;
+      if (seen.has(key)) continue; // count once per field+date per division
+      seen.add(key);
+      const divs = fieldDateDivs.get(key);
+      if (divs && divs.size > 1) penalty++;
     }
   }
   return penalty;

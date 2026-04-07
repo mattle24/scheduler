@@ -350,7 +350,8 @@ function generate() {
 
           // Compute global score before this round
           let globalScoreBefore = divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
-            + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0);
+            + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0)
+          + scoreWeekendOtherDivField(divisionResults) * (WEIGHTS.weekendOtherDivField || 0);
 
           for (let i = 0; i < divisionResults.length; i++) {
             const dr = divisionResults[i];
@@ -396,10 +397,12 @@ function generate() {
             const oldSchedule = dr.schedule;
             divisionResults[i] = { ...dr, schedule: newSchedule, details: newDetails, slots: divSlots };
             const newGlobalScore = divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
-              + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0);
+              + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0)
+          + scoreWeekendOtherDivField(divisionResults) * (WEIGHTS.weekendOtherDivField || 0);
             divisionResults[i] = { ...dr, schedule: oldSchedule, details: oldDetails };
             const oldGlobalScore = divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
-              + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0);
+              + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0)
+          + scoreWeekendOtherDivField(divisionResults) * (WEIGHTS.weekendOtherDivField || 0);
 
             if (newGlobalScore < oldGlobalScore) {
               // Accept: update division result and claim new slots
@@ -623,6 +626,8 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
       tip: 'Cases where 2nd day of a Fri/Sat or Sat/Sun back-to-back has an earlier timeslot than the 1st day.' },
     { label: 'Sat/Sun Balance', value: details.satSunBalance, min: 0,
       tip: 'How uneven Saturday vs Sunday game counts are per team. 0 = perfectly balanced.' },
+    { label: 'Back-to-Back Balance', value: details.btbBalance, min: 0,
+      tip: 'Variance of back-to-back (consecutive day) game counts across teams. 0 = all teams have equal back-to-backs.' },
   ];
 
   const scoreCard = document.createElement('div');
