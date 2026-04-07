@@ -86,9 +86,11 @@ function clearInputs() {
 
   // Reset penalty weights to defaults
   const defaults = {
-    weekendSitouts: 12, weekdayBackToBack: 10, weekendDoubleHeaders: 5,
-    crossBoundaryBTB: 7, gapVariance: 6, rollingDensity: 9, sixDayDensity: 10,
-    shortGapPenalty: 3, timeDistribution: 3, fieldBalance: 4
+    weekendSitouts: 12, weekendDoubleHeaders: 5,
+    gapVariance: 6,
+    shortGapPenalty: 3, timeDistribution: 3, fieldBalance: 4,
+    earlySeasonDensity: 8, endOfSeasonDensity: 8,
+    weekendBTBTimePenalty: 3, satSunBalance: 4
   };
   for (const key in defaults) {
     const el = document.getElementById('w_' + key);
@@ -125,11 +127,20 @@ function syncWeights() {
 function buildPenaltyGrid() {
   const grid = document.getElementById('penaltyGrid');
   for (const key in WEIGHTS) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'penalty-item';
     const label = document.createElement('label');
     label.textContent = WEIGHT_LABELS[key] || key;
+    wrapper.append(label);
+    if (WEIGHT_DESCRIPTIONS[key]) {
+      const desc = document.createElement('small');
+      desc.className = 'penalty-desc';
+      desc.textContent = WEIGHT_DESCRIPTIONS[key];
+      wrapper.append(desc);
+    }
     const input = document.createElement('input');
     Object.assign(input, { type: 'number', id: 'w_' + key, min: '0', max: '50', value: String(WEIGHTS[key]), step: '1' });
-    grid.append(label, input);
+    grid.append(wrapper, input);
   }
 }
 
@@ -401,8 +412,11 @@ function generate() {
 // ─── Scoring ─────────────────────────────────────────────────────────────────
 
 function weightedScore(d) {
-  return d.weekendSitouts * WEIGHTS.weekendSitouts + d.weekdayBackToBack * WEIGHTS.weekdayBackToBack + d.weekendDoubleHeaders * WEIGHTS.weekendDoubleHeaders + d.crossBoundaryBTB * WEIGHTS.crossBoundaryBTB + d.gapVariance * WEIGHTS.gapVariance
-    + d.rollingDensity * WEIGHTS.rollingDensity + d.sixDayDensity * WEIGHTS.sixDayDensity + d.shortGapPenalty * WEIGHTS.shortGapPenalty + d.timeDistribution * WEIGHTS.timeDistribution + d.fieldBalance * WEIGHTS.fieldBalance;
+  let score = 0;
+  for (const key in WEIGHTS) {
+    if (d[key] != null) score += d[key] * WEIGHTS[key];
+  }
+  return score;
 }
 
 // ─── Rendering ───────────────────────────────────────────────────────────────
@@ -506,10 +520,14 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
       tip: 'Number of times a team has zero games on a weekend that has available slots. Lower is better.' },
     { label: 'Weekend Back-to-Back', value: details.weekendDoubleHeaders, min: details.minWeekendDH,
       tip: 'Number of times a team plays 2+ games in the same Sat-Sun weekend. Each extra game beyond 1 counts as 1.' },
-    { label: 'Weekday Back-to-Back', value: details.weekdayBackToBack, min: 0,
-      tip: 'Number of times a team plays on consecutive weekdays (e.g. Mon+Tue). Bad for pitcher rest. Lower is better.' },
-    { label: 'Fri/Sat · Sun/Mon BTB', value: details.crossBoundaryBTB, min: 0,
-      tip: 'Back-to-back games crossing the weekday/weekend boundary (Fri→Sat or Sun→Mon). Bad for pitcher rest.' },
+    { label: 'Early Season Density', value: details.earlySeasonDensity, min: 0,
+      tip: 'Pairs of games within 2 days of each other in the first 7 days of the season.' },
+    { label: 'End of Season Density', value: details.endOfSeasonDensity, min: 0,
+      tip: 'Extra games beyond 1 per team in the last 5 days of the season.' },
+    { label: 'Weekend B2B Timeslot', value: details.weekendBTBTimePenalty, min: 0,
+      tip: 'Cases where 2nd day of a Fri/Sat or Sat/Sun back-to-back has an earlier timeslot than the 1st day.' },
+    { label: 'Sat/Sun Balance', value: details.satSunBalance, min: 0,
+      tip: 'How uneven Saturday vs Sunday game counts are per team. 0 = perfectly balanced.' },
   ];
 
   const scoreCard = document.createElement('div');

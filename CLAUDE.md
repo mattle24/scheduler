@@ -34,6 +34,7 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
    - OR `selectMatchupsWithLeagues()` — layered fill: intra-league pairs first, then inter-league, alternating layers
 4. `assignHomeAway()` — greedy + 2 repair passes (per-matchup balance, then overall ±1)
 5. `tryBuildSchedule()` — Phase 1: weekend rounds to weekend slots; Phase 2: weekday greedy assignment. 200 random attempts, keeps best.
+6. `annealSchedule()` — post-greedy simulated annealing: same-date slot swaps (time+field) and cross-date slot swaps with Metropolis acceptance. 2000 iterations, targets timeslot ordering and other soft penalties.
 
 ## Key Data Structures
 - **Slot**: `{ date, dayOfWeek, weekendGroup, week, field, time, sortKey }`
@@ -46,15 +47,17 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
 ## Scoring System (scoreCandidate / scoreDetails)
 Weighted sum of penalties. Current weights in `WEIGHTS` global:
 - weekendSitouts (12) — team has zero games on a weekend with available slots; if a team has fewer total games than weekends, that many sitouts are forgiven
-- weekdayBackToBack (10) — consecutive weekday games (Mon+Tue, etc.)
-- weekendDoubleHeaders (8) — 2+ games in same Sat-Sun weekend
-- crossBoundaryBTB (7) — Fri-Sat or Sun-Mon back-to-back
+- weekendDoubleHeaders (5) — 2+ games in same Sat-Sun weekend
 - gapVariance (6) — std dev of gap lengths per team
-- rollingDensity (5) — 3+ games in 5-day window, penalty = (count-2)^2
-- sixDayDensity (5) — 3+ games in 6-day window, explicit penalties: 3→4, 4→12, 5→20
 - shortGapPenalty (3) — sum of 1/gap for all consecutive game pairs
-- timeDistribution (3) — variance of time-slot bucket counts per team
+- timeDistribution (3) — variance of weekend time-slot bucket counts per team (WE_MORN/WE_AFT only)
 - fieldBalance (4) — variance of field assignment counts per team
+- earlySeasonDensity (8) — pairs of games within 2 days in first 7 days of season
+- endOfSeasonDensity (8) — games beyond 1 per team in last 5 days of season
+- weekendBTBTimePenalty (3) — 2nd day of Fri/Sat or Sat/Sun b2b has earlier timeslot than 1st day
+- satSunBalance (4) — variance of proportion Saturday among weekend games per team
+
+`scoreCandidate` and `weightedScore` (ui.js) both use a dynamic loop over WEIGHTS keys.
 
 Users can adjust all weights via collapsible "Penalty Weights" panel in Settings.
 
@@ -63,9 +66,8 @@ Users can adjust all weights via collapsible "Penalty Weights" panel in Settings
 Show hard constraints in the UI in the penalty weights section.
 
 - No team plays twice on the same day
-- No team plays 3+ consecutive calendar days (`hasConsecutiveDays` / `teamHasConsecutiveDays`)
-- In the first 10 days of the season, no team can have games within 2 days of each other (`hasEarlySeasonConflict` / `teamHasEarlySeasonConflict`)
-- In the last 5 days of the season, each team plays at most 1 game (`endOfSeasonCutoff`)
+- No team plays 3+ games in any 4-day window (`hasThreeInFourDays` / `teamHasThreeInFourDays`)
+- Max 1 weekday game per Monday–Friday span (`hasWeekdayGameThisWeek`)
 - AL/NL split: each team plays every intra-league opponent at least once (`validateLeagueSplit`)
 
 ## Multi-Division Scheduling
@@ -95,6 +97,17 @@ When a division's "AL/NL" checkbox is enabled:
 - Weekend grouping: keyed by Saturday's date string (Sun maps to preceding Sat)
 - ISO week: keyed by Monday's date string
 
+## Date Performance
+
+`new Date()` construction is expensive in hot loops. The greedy builder runs 200 attempts × many games × many candidate slots, so eligibility filters are called millions of times. Key patterns:
+
+- **`dateToDay` map**: Precomputed at the start of `tryBuildSchedule` — maps date strings to day-numbers (integer days since epoch). All date arithmetic in the eligibility filter uses day-number comparisons instead of Date objects.
+- **`teamDaySorted`**: Sorted arrays of day-numbers per team. Used by `hasThreeInFourDays` for binary-search-based window checks, and by `nearestDayDistance` for gap scoring.
+- **`dateToWeekdayWeek` map**: Precomputed date → isoWeek key (only for weekdays, null for weekends). Combined with `teamWeekdayWeek` tracking map (weekday games per M-F week per team) to enforce the max-1-weekday-per-week constraint via O(1) map lookups instead of iterating dates.
+- **`dateToDow` map**: Precomputed date → day-of-week.
+
+**Rule of thumb**: Never create `new Date()` inside an eligibility filter. Precompute any date-derived value into a map keyed by date string at `tryBuildSchedule` init time. The `addDays()` utility is fine for one-off use (constraint helpers, scoring) but too expensive for per-slot-per-game-per-attempt hot paths.
+
 ## Glossary
 
 - "divisions" are age groups. These are akin to MLB / AAA / AA / etc.
@@ -120,7 +133,7 @@ For **AL/NL league splits** (scheduler.js:245-379), matchup generation uses a la
 - **Phase 1 (weekends)**: For each weekend group, assigns shuffled round games to eligible slots. Slot selection scores by: `-dateGameCount` (spread across Sat/Sun) and `-teamFieldCount * 0.3` (field balance), plus random jitter.
 - **Phase 2 (weekdays)**: Greedy slot selection scores by: `min distance to nearest existing game` (fill gaps), `-weekCount * 5` (avoid clustering in one week), `-teamFieldCount * 2` (field balance), plus jitter.
 
-Hard constraints are checked inline via `hasConsecutiveDays`, `hasEarlySeasonConflict`, and end-of-season limits. If no eligible slot exists for a weekday game, the attempt fails.
+Hard constraints are checked inline via `hasThreeInFourDays` and `hasWeekdayGameThisWeek`. If no eligible slot exists for a weekday game, the attempt fails.
 
 ### Scoring Function
 
@@ -130,16 +143,20 @@ Hard constraints are checked inline via `hasConsecutiveDays`, `hasEarlySeasonCon
 |---|---|
 | `weekendSitouts` | Weekends where a team has 0 games (forgives unavoidable sitouts) |
 | `weekendDoubleHeaders` | Extra games beyond 1 per team per Sat-Sun pair |
-| `weekdayBackToBack` | Consecutive weekday games (Mon+Tue, etc.) |
-| `crossBoundaryBTB` | Fri→Sat or Sun→Mon back-to-backs |
 | `gapVariance` | Sum of per-team std dev of inter-game gaps |
-| `rollingDensity` | 5-day window: `(count-2)^2` for 3+ games |
-| `sixDayDensity` | 6-day window: explicit penalty table (3→4, 4→12, 5→20) |
 | `shortGapPenalty` | Sum of `1/gap` for all consecutive game pairs |
-| `timeDistribution` | Variance of time-bucket counts per team |
+| `timeDistribution` | Variance of weekend time-bucket counts per team (WE_MORN/WE_AFT) |
 | `fieldBalance` | Variance of field-assignment counts per team |
+| `earlySeasonDensity` | Pairs of games within 2 days in first 7 days |
+| `endOfSeasonDensity` | Games beyond 1 per team in last 5 days |
+| `weekendBTBTimePenalty` | 2nd day of weekend b2b has earlier timeslot |
+| `satSunBalance` | Variance of proportion Saturday per team |
 
-### Why No Simulated Annealing
+### Post-Greedy Simulated Annealing
 
-A simulated annealing step was tested (swap and relocate moves with Metropolis acceptance). Diagnostic counters showed ~76% of moves were rejected by hard constraints, and the remaining accepted moves produced near-zero net improvement — the greedy builder's 200-attempt best-of approach already reaches a local optimum that single-move perturbations can't escape. SA was removed since it added runtime without improving scores.
+`annealSchedule` runs 2000 iterations after the greedy builder. Two move types:
+- **Same-date slot swap (70%):** Swap time+field between two games on the same date. Always valid since no date-based constraints change. Directly targets timeslot ordering optimization.
+- **Cross-date slot swap (30%):** Swap full slot (date, dayOfWeek, time, field) between two games. Validated against hard constraints (3-in-4-days, weekday-per-week, no same-day).
+
+Uses Metropolis acceptance with geometric cooling (T: 2.0 → 0.01). Tracks best schedule seen.
 
