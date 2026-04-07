@@ -13,12 +13,17 @@ function saveState() {
     for (const cb of tr.querySelectorAll('.div-fields input[type="checkbox"]')) {
       if (!cb.checked) uncheckedFields.push(cb.value);
     }
+    const excludedDays = [];
+    for (const cb of tr.querySelectorAll('.div-excluded-days input[type="checkbox"]')) {
+      if (cb.checked) excludedDays.push(parseInt(cb.value));
+    }
     divisions.push({
       name: tr.querySelector('.div-name').value,
       numTeams: tr.querySelector('.div-teams').value,
       gamesPerTeam: tr.querySelector('.div-games').value,
       leagueSplit: tr.querySelector('.div-league').checked,
-      uncheckedFields
+      uncheckedFields,
+      excludedDays
     });
   }
 
@@ -63,7 +68,7 @@ function restoreState(state) {
     const tbody = document.querySelector('#divisionTable tbody');
     tbody.innerHTML = '';
     for (const div of state.divisions) {
-      addDivisionRow(div.name, div.numTeams, div.gamesPerTeam, div.leagueSplit);
+      addDivisionRow(div.name, div.numTeams, div.gamesPerTeam, div.leagueSplit, div.excludedDays || []);
       // Uncheck fields that were unchecked
       const tr = tbody.lastElementChild;
       for (const cb of tr.querySelectorAll('.div-fields input[type="checkbox"]')) {
@@ -85,17 +90,7 @@ function clearInputs() {
   document.getElementById('fileName').textContent = '';
 
   // Reset penalty weights to defaults
-  const defaults = {
-    weekendSitouts: 12, weekendDoubleHeaders: 5,
-    gapVariance: 6,
-    shortGapPenalty: 3, timeDistribution: 3, fieldBalance: 4,
-    earlySeasonDensity: 8, endOfSeasonDensity: 8,
-    weekendBTBTimePenalty: 3, satSunBalance: 4
-  };
-  for (const key in defaults) {
-    const el = document.getElementById('w_' + key);
-    if (el) el.value = defaults[key];
-  }
+  resetWeights();
 
   // Clear results and errors
   document.getElementById('results').classList.add('hidden');
@@ -124,6 +119,22 @@ function syncWeights() {
   }
 }
 
+// Default weights — matches the initial WEIGHTS values in scheduler.js
+const DEFAULT_WEIGHTS = {
+  divisionClustering: 4, earlySeasonDensity: 8, endOfSeasonDensity: 8,
+  fieldBalance: 4, fieldContinuity: 2, gapVariance: 6, satSunBalance: 4,
+  shortGapPenalty: 3, timeDistribution: 3, timeSlotSpread: 3,
+  weekendBTBTimePenalty: 3, weekendDoubleHeaders: 5, weekendSitouts: 12,
+};
+
+function resetWeights() {
+  for (const key in DEFAULT_WEIGHTS) {
+    const el = document.getElementById('w_' + key);
+    if (el) el.value = DEFAULT_WEIGHTS[key];
+  }
+  debouncedSave();
+}
+
 function buildPenaltyGrid() {
   const grid = document.getElementById('penaltyGrid');
   for (const key in WEIGHTS) {
@@ -146,15 +157,22 @@ function buildPenaltyGrid() {
 
 // ─── Division Management ─────────────────────────────────────────────────────
 
-function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit) {
+function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit, excludedDays) {
+  excludedDays = excludedDays || [];
   const tbody = document.querySelector('#divisionTable tbody');
   const tr = document.createElement('tr');
+
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dayCheckboxes = dayNames.map((d, i) =>
+    `<label><input type="checkbox" value="${i}" ${excludedDays.includes(i) ? 'checked' : ''}> ${d}</label>`
+  ).join('');
 
   tr.innerHTML = `
     <td><input type="text" class="div-name" placeholder="e.g. Majors" value="${name || ''}"></td>
     <td><input type="number" class="div-teams" min="2" max="30" value="${numTeams || ''}"></td>
     <td><input type="number" class="div-games" min="1" max="100" value="${gamesPerTeam || ''}"></td>
     <td style="text-align:center;"><input type="checkbox" class="div-league" ${leagueSplit ? 'checked' : ''}></td>
+    <td><div class="div-excluded-days">${dayCheckboxes}</div></td>
     <td><div class="div-fields"></div></td>
     <td><button class="btn-remove" onclick="removeDivisionRow(this)" title="Remove division">&times;</button></td>
   `;
@@ -239,13 +257,17 @@ function readDivisions() {
     for (const cb of tr.querySelectorAll('.div-fields input[type="checkbox"]')) {
       if (cb.checked) fields.push(cb.value);
     }
+    const excludedDays = [];
+    for (const cb of tr.querySelectorAll('.div-excluded-days input[type="checkbox"]')) {
+      if (cb.checked) excludedDays.push(parseInt(cb.value));
+    }
 
     if (!name) throw new Error(`Division ${i + 1}: please enter a name`);
     if (!numTeams || numTeams < 2) throw new Error(`Division "${name}": need at least 2 teams`);
     if (!gamesPerTeam || gamesPerTeam < 1) throw new Error(`Division "${name}": need at least 1 game per team`);
     if (fields.length === 0) throw new Error(`Division "${name}": select at least one field`);
 
-    divs.push({ name, numTeams, gamesPerTeam, leagueSplit, fields });
+    divs.push({ name, numTeams, gamesPerTeam, leagueSplit, fields, excludedDays });
   }
   return divs;
 }
@@ -278,7 +300,7 @@ function generate() {
         for (const s of allSlots) {
           let divCount = 0;
           for (const d of divs) {
-            if (d.fields.includes(s.field)) divCount++;
+            if (d.fields.includes(s.field) && !d.excludedDays.includes(s.dayOfWeek)) divCount++;
           }
           // Only record scarcity for shared slots (2+ divisions)
           if (divCount > 1) slotScarcity.set(s.sortKey, divCount - 1);
@@ -289,9 +311,9 @@ function generate() {
         const div = divs[i];
         const divLabel = `Division "${div.name}" (${i + 1}/${divs.length})`;
 
-        // Filter slots to this division's valid fields minus already-claimed slots
+        // Filter slots to this division's valid fields minus already-claimed slots and excluded days
         const divSlots = allSlots.filter(s =>
-          div.fields.includes(s.field) && !claimedKeys.has(s.sortKey)
+          div.fields.includes(s.field) && !claimedKeys.has(s.sortKey) && !div.excludedDays.includes(s.dayOfWeek)
         );
 
         // Phase 1: Build
@@ -334,8 +356,8 @@ function generate() {
           let improved = false;
 
           // Compute global score before this round
-          let globalScoreBefore = 0;
-          for (const dr of divisionResults) globalScoreBefore += weightedScore(dr.details);
+          let globalScoreBefore = divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
+            + scoreCrossDivisionClustering(divisionResults) * (WEIGHTS.divisionClustering || 0);
 
           for (let i = 0; i < divisionResults.length; i++) {
             const dr = divisionResults[i];
@@ -350,9 +372,9 @@ function generate() {
               releasedKeys.add(key);
             }
 
-            // Re-filter slots for this division (its fields, minus other divisions' claims)
+            // Re-filter slots for this division (its fields, minus other divisions' claims and excluded days)
             const divSlots = allSlots.filter(s =>
-              div.fields.includes(s.field) && !claimedKeys.has(s.sortKey)
+              div.fields.includes(s.field) && !claimedKeys.has(s.sortKey) && !div.excludedDays.includes(s.dayOfWeek)
             );
 
             statusBox.innerHTML = `
@@ -360,21 +382,33 @@ function generate() {
               <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
               <div class="progress-label" id="progressLabel">0%</div>`;
 
+            // Collect other divisions' games so the greedy builder can cluster
+            const otherDivisionGames = divisionResults
+              .filter((_, j) => j !== i)
+              .flatMap(r => r.schedule);
+
             const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, (pct, score) => {
               const percent = Math.round(pct * 100);
               document.getElementById('progressFill').style.width = percent + '%';
               const label = score === Infinity ? percent + '%' : percent + '% — score: ' + score.toFixed(1);
               document.getElementById('progressLabel').textContent = label;
-            }, { leagueSplit: div.leagueSplit, slotScarcity });
+            }, { leagueSplit: div.leagueSplit, slotScarcity, otherDivisionGames });
 
             const newSchedule = result.schedule;
             const newDetails = scoreDetails(newSchedule, div.numTeams, divSlots);
 
-            // Compare: does replacing this division's schedule improve global score?
-            const newDivScore = weightedScore(newDetails);
-            const oldDivScore = weightedScore(dr.details);
+            // Compare: does replacing this division improve the global score (including cross-division clustering)?
+            // Temporarily swap in the new schedule to compute global scores
+            const oldDetails = dr.details;
+            const oldSchedule = dr.schedule;
+            divisionResults[i] = { ...dr, schedule: newSchedule, details: newDetails, slots: divSlots };
+            const newGlobalScore = divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
+              + scoreCrossDivisionClustering(divisionResults) * (WEIGHTS.divisionClustering || 0);
+            divisionResults[i] = { ...dr, schedule: oldSchedule, details: oldDetails };
+            const oldGlobalScore = divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
+              + scoreCrossDivisionClustering(divisionResults) * (WEIGHTS.divisionClustering || 0);
 
-            if (newDivScore < oldDivScore) {
+            if (newGlobalScore < oldGlobalScore) {
               // Accept: update division result and claim new slots
               divisionResults[i] = {
                 division: div,
@@ -399,7 +433,7 @@ function generate() {
       }
 
       lastCSV = formatMultiDivisionCSV(divisionResults);
-      renderMultiDivisionResults(divisionResults);
+      renderMultiDivisionResults(divisionResults, allSlots);
       statusBox.classList.add('hidden');
       document.getElementById('results').classList.remove('hidden');
     } catch (e) {
@@ -421,22 +455,29 @@ function weightedScore(d) {
 
 // ─── Rendering ───────────────────────────────────────────────────────────────
 
-function renderMultiDivisionResults(divisionResults) {
+function renderMultiDivisionResults(divisionResults, allSlots) {
   const container = document.getElementById('results');
   container.innerHTML = '';
 
-  // Slot utilization by field
-  renderSlotStats(container, divisionResults);
-
-  // Floating TOC
-  if (divisionResults.length > 1) {
+  // Floating TOC — fields + divisions
+  const fieldNames = [...new Set((allSlots || []).map(s => s.field))].sort();
+  {
     const toc = document.createElement('nav');
     toc.className = 'results-toc';
-    toc.innerHTML = '<span class="toc-label">Jump to:</span>' +
-      divisionResults.map((dr, i) =>
-        `<a href="#division-${i}">${dr.division.name}</a>`
-      ).join('');
+    const links = [];
+    if (fieldNames.length > 0) {
+      for (const f of fieldNames) links.push(`<a href="#field-${f.replace(/\s+/g, '-')}">${f}</a>`);
+    }
+    for (let i = 0; i < divisionResults.length; i++) {
+      links.push(`<a href="#division-${i}">${divisionResults[i].division.name}</a>`);
+    }
+    toc.innerHTML = '<span class="toc-label">Jump to:</span>' + links.join('');
     container.appendChild(toc);
+  }
+
+  // Per-field sections with heatmaps
+  if (allSlots && allSlots.length > 0) {
+    renderFieldSections(container, divisionResults, allSlots, fieldNames);
   }
 
   for (let i = 0; i < divisionResults.length; i++) {
@@ -459,58 +500,121 @@ function renderMultiDivisionResults(divisionResults) {
   container.appendChild(actions);
 }
 
-function renderSlotStats(container, divisionResults) {
-  // Collect all slots and all scheduled games across divisions, grouped by field
-  const allSlots = divisionResults.flatMap(dr => dr.slots);
-  const allGames = divisionResults.flatMap(dr => dr.schedule);
-
-  // Unique fields from slots
-  const fieldNames = [...new Set(allSlots.map(s => s.field))].sort();
-
-  // Count per field: total slots, weekend slots, weekday slots, used weekend, used weekday
-  const gamesByField = new Map();
-  for (const g of allGames) {
-    if (!gamesByField.has(g.field)) gamesByField.set(g.field, []);
-    gamesByField.get(g.field).push(g);
+function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
+  // Build the set of all (date, time) columns across all fields, sorted chronologically
+  // and a lookup: field -> Set of "date|time" keys that are available
+  const fieldSlotKeys = new Map(); // field -> Set of "date|time"
+  for (const s of allSlots) {
+    if (!fieldSlotKeys.has(s.field)) fieldSlotKeys.set(s.field, new Set());
+    fieldSlotKeys.get(s.field).add(s.date + '|' + s.time);
   }
 
-  // Also need total unique slots per field (avoid double-counting shared slots)
-  const slotKeysByField = new Map();
+  // Build game lookup: field -> "date|time" -> division name
+  const fieldGameDiv = new Map(); // field -> Map("date|time" -> divisionName)
   for (const dr of divisionResults) {
-    for (const s of dr.slots) {
-      if (!slotKeysByField.has(s.field)) slotKeysByField.set(s.field, new Set());
-      slotKeysByField.get(s.field).add(s.sortKey);
+    for (const g of dr.schedule) {
+      if (!fieldGameDiv.has(g.field)) fieldGameDiv.set(g.field, new Map());
+      fieldGameDiv.get(g.field).set(g.date + '|' + g.time, dr.division.name);
     }
   }
 
-  let html = '<table><thead><tr><th>Field</th><th>Weekend Slots</th><th>Weekday Slots</th><th>Total</th></tr></thead><tbody>';
+  // Division names + colors
+  const divNames = divisionResults.map(dr => dr.division.name);
+  const divColors = ['#2d5a27', '#2563eb', '#9333ea', '#dc2626', '#ea580c', '#0891b2', '#4f46e5', '#be185d'];
+
   for (const field of fieldNames) {
-    const slots = allSlots.filter(s => s.field === field);
-    const seen = new Set();
-    let weekendTotal = 0, weekdayTotal = 0;
-    for (const s of slots) {
-      if (seen.has(s.sortKey)) continue;
-      seen.add(s.sortKey);
-      if (s.dayOfWeek === 0 || s.dayOfWeek === 6) weekendTotal++;
-      else weekdayTotal++;
-    }
-    const games = gamesByField.get(field) || [];
-    let weekendUsed = 0, weekdayUsed = 0;
-    for (const g of games) {
-      const dow = new Date(g.date + 'T00:00:00').getDay();
-      if (dow === 0 || dow === 6) weekendUsed++;
-      else weekdayUsed++;
-    }
-    const total = weekendUsed + weekdayUsed;
-    const totalSlots = weekendTotal + weekdayTotal;
-    html += `<tr><td>${field}</td><td>${weekendUsed} / ${weekendTotal}</td><td>${weekdayUsed} / ${weekdayTotal}</td><td>${total} / ${totalSlots}</td></tr>`;
-  }
-  html += '</tbody></table>';
+    const section = document.createElement('div');
+    section.className = 'division-section';
+    section.id = `field-${field.replace(/\s+/g, '-')}`;
+    const heading = document.createElement('h2');
+    heading.textContent = field;
+    section.appendChild(heading);
 
-  const card = document.createElement('div');
-  card.className = 'card';
-  card.innerHTML = '<h2>Slot Utilization by Field</h2>' + html;
-  container.appendChild(card);
+    // Get all unique dates across ALL fields (for unavailable marking)
+    const allDates = [...new Set(allSlots.map(s => s.date))].sort();
+    const allTimes = [...new Set(allSlots.map(s => s.time))].sort((a, b) => timeSortKey(a) - timeSortKey(b));
+
+    // Build columns: each column is a date+time pair, but only include combos that exist on ANY field
+    // Group by date for header display
+    const columns = []; // [{date, time, dateTime}]
+    for (const date of allDates) {
+      for (const time of allTimes) {
+        // Include if any field has this slot (so we can show unavailable)
+        const anyFieldHas = allSlots.some(s => s.date === date && s.time === time);
+        if (anyFieldHas) {
+          columns.push({ date, time, dateTime: date + '|' + time });
+        }
+      }
+    }
+
+    const available = fieldSlotKeys.get(field) || new Set();
+    const gameMap = fieldGameDiv.get(field) || new Map();
+
+    // Utilization stats
+    const totalSlots = available.size;
+    const usedSlots = [...available].filter(k => gameMap.has(k)).length;
+
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    let html = `<div class="field-stats">${usedSlots} / ${totalSlots} slots used</div>`;
+    html += '<div style="overflow-x:auto;">';
+    html += '<table class="heatmap-table field-heatmap"><thead>';
+
+    // Date header row
+    html += '<tr><th></th>';
+    let prevDate = '';
+    for (const col of columns) {
+      if (col.date !== prevDate) {
+        // Count how many columns share this date
+        const span = columns.filter(c => c.date === col.date).length;
+        const d = new Date(col.date + 'T00:00:00');
+        const dow = d.getDay();
+        const isWeekend = dow === 0 || dow === 6;
+        const label = `${d.getMonth() + 1}/${d.getDate()}`;
+        html += `<th colspan="${span}" class="date-header field-date-header${isWeekend ? ' weekend' : ''}">${label}</th>`;
+        prevDate = col.date;
+      }
+    }
+    html += '</tr>';
+
+    // Time header row
+    html += '<tr><th></th>';
+    for (const col of columns) {
+      html += `<th class="time-header">${formatTimeDisplay(col.time)}</th>`;
+    }
+    html += '</tr></thead><tbody>';
+
+    // One row per division
+    for (let di = 0; di < divNames.length; di++) {
+      const divName = divNames[di];
+      const color = divColors[di % divColors.length];
+      html += `<tr><td class="team-name">${divName}</td>`;
+      for (const col of columns) {
+        const key = col.dateTime;
+        const isAvailable = available.has(key);
+        const gameDiv = gameMap.get(key);
+        let cls, style;
+        if (!isAvailable) {
+          cls = 'field-unavail';
+          style = '';
+        } else if (gameDiv === divName) {
+          cls = 'field-used';
+          style = ` style="background:${color}"`;
+        } else {
+          cls = 'field-free';
+          style = '';
+        }
+        html += `<td class="heatmap-cell ${cls}"${style}></td>`;
+      }
+      html += '</tr>';
+    }
+
+    html += '</tbody></table></div>';
+    card.innerHTML = `<h3>Field Heatmap</h3>` + html;
+    section.appendChild(card);
+    container.appendChild(section);
+  }
 }
 
 function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit) {
@@ -624,6 +728,69 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
   summaryCard.className = 'card';
   summaryCard.innerHTML = '<h2>Per-Team Summary</h2>' + html;
   container.appendChild(summaryCard);
+
+  // Time Slot Distribution table
+  {
+    const bucketNames = ['WKND_EARLY', 'WKND_MID', 'WKND_LATE'];
+    const bucketLabels = { WKND_EARLY: 'Early (<10:30a)', WKND_MID: 'Mid (10:30a–3p)', WKND_LATE: 'Late (≥3p)' };
+
+    // Compute per-team bucket counts (reuse teamData ordering from above)
+    const teamBuckets = [];
+    for (const r of teamData) {
+      const t = parseInt(r.team) - 1;
+      const counts = new Map();
+      for (const b of bucketNames) counts.set(b, 0);
+      for (const g of schedule.filter(g => g.home === t || g.away === t)) {
+        if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
+        const b = slotBucket(g.dayOfWeek, g.time);
+        if (counts.has(b)) counts.set(b, counts.get(b) + 1);
+      }
+      teamBuckets.push({ team: r.team, league: r.league, counts });
+    }
+
+    const hasWeekendGames = teamBuckets.some(tb => [...tb.counts.values()].some(v => v > 0));
+    if (hasWeekendGames) {
+      const activeBuckets = bucketNames.filter(b => teamBuckets.some(tb => tb.counts.get(b) > 0));
+      const stats = new Map();
+      for (const b of activeBuckets) {
+        const vals = teamBuckets.map(tb => tb.counts.get(b));
+        const mean = vals.reduce((a, v) => a + v, 0) / vals.length;
+        const variance = vals.reduce((a, v) => a + (v - mean) ** 2, 0) / vals.length;
+        stats.set(b, { mean, stdDev: Math.sqrt(variance) });
+      }
+
+      let thtml = '<table><thead><tr>';
+      if (leagueSplit) thtml += '<th>League</th>';
+      thtml += '<th>Team</th>';
+      for (const b of activeBuckets) thtml += `<th>${bucketLabels[b] || b}</th>`;
+      thtml += '</tr></thead><tbody>';
+
+      for (const tb of teamBuckets) {
+        thtml += '<tr>';
+        if (leagueSplit) thtml += `<td>${tb.league}</td>`;
+        thtml += `<td>${tb.team}</td>`;
+        for (const b of activeBuckets) {
+          const val = tb.counts.get(b);
+          const s = stats.get(b);
+          let cls = '';
+          if (s && s.stdDev > 0) {
+            const zscore = Math.abs(val - s.mean) / s.stdDev;
+            if (zscore > 1.5) cls = ' class="bad"';
+            else if (zscore > 0.8) cls = ' class="ok"';
+            else cls = ' class="good"';
+          }
+          thtml += `<td${cls}>${val}</td>`;
+        }
+        thtml += '</tr>';
+      }
+      thtml += '</tbody></table>';
+
+      const timeCard = document.createElement('div');
+      timeCard.className = 'card';
+      timeCard.innerHTML = '<h2>Weekend Time Slot Distribution</h2>' + thtml;
+      container.appendChild(timeCard);
+    }
+  }
 
   // Schedule table
   const sorted = [...schedule].sort((a, b) => {

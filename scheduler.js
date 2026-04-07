@@ -1,41 +1,52 @@
 // ─── Constants ───────────────────────────────────────────────────────────────
 const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const NUM_ATTEMPTS = 200;
+const WKND_BUCKET_THRESHOLDS = [630, 900]; // minutes: early < 10:30am, mid 10:30am–3pm, late >= 3pm
+const WKND_BUCKET_IMPORTANCE = { WKND_EARLY: 1.5, WKND_MID: 0.5, WKND_LATE: 1.5 };
 
 const WEIGHTS = {
+  divisionClustering: 4,
   earlySeasonDensity: 8,
   endOfSeasonDensity: 8,
   fieldBalance: 4,
+  fieldContinuity: 2,
   gapVariance: 6,
   satSunBalance: 4,
   shortGapPenalty: 3,
   timeDistribution: 3,
+  timeSlotSpread: 3,
   weekendBTBTimePenalty: 3,
   weekendDoubleHeaders: 5,
   weekendSitouts: 12,
 };
 
 const WEIGHT_LABELS = {
+  divisionClustering: 'Division Clustering (same-division games grouped on field)',
   earlySeasonDensity: 'Early Season Density (games within 2 days in first 7 days)',
   endOfSeasonDensity: 'End of Season Density (>1 game in last 5 days)',
   fieldBalance: 'Field Balance (teams play even games at each field)',
+  fieldContinuity: 'Weekend Field Continuity (same-division games back-to-back on a field)',
   gapVariance: 'Gap Variance (difference time between games across teams)',
   satSunBalance: 'Sat/Sun Balance (equal Saturday & Sunday games per team)',
   shortGapPenalty: 'Short Gap Penalty',
-  timeDistribution: 'Time Distribution',
+  timeDistribution: 'Time Distribution (early/mid/late)',
+  timeSlotSpread: 'Weekend Time Slot Spread (avoid simultaneous games on same date)',
   weekendBTBTimePenalty: 'Weekend B2B Timeslot (2nd day should be later time)',
   weekendDoubleHeaders: 'Weekend Back-to-Back',
   weekendSitouts: 'Weekend Sit-outs (no games in a weekend)',
 };
 
 const WEIGHT_DESCRIPTIONS = {
+  divisionClustering: 'Penalizes switching between divisions on the same field in a day. A-B-A patterns (switching back and forth) are penalized much more heavily than A-A-B (single switch).',
   earlySeasonDensity: 'Penalizes games scheduled within 2 days of each other during the first 7 days of the season.',
   endOfSeasonDensity: 'Penalizes more than 1 game per team in the last 5 days of the season.',
   fieldBalance: 'Penalizes uneven distribution of field assignments per team. Higher = teams play at each field more equally.',
+  fieldContinuity: 'Penalizes gaps between same-division games on the same field on weekends. Back-to-back games reduce umpire travel. Higher = prefer consecutive same-division games.',
   gapVariance: 'Penalizes uneven spacing between games across a team\'s schedule. Higher = more consistent rest for all teams.',
   satSunBalance: 'Penalizes uneven split of Saturday vs Sunday games per team. Higher = equal Sat & Sun games.',
   shortGapPenalty: 'Adds 1/gap-days for each pair of consecutive games. Strongly penalizes 1–2 day gaps, fades for longer gaps.',
-  timeDistribution: 'Penalizes uneven distribution of game time slots per team (e.g. always 9am, never 1pm).',
+  timeDistribution: 'Penalizes uneven distribution of weekend time buckets (early < 10:30am, mid 10:30am–3pm, late >= 3pm) per team. Early and late slots are weighted more heavily.',
+  timeSlotSpread: 'Penalizes multiple games at the same time on the same weekend date. Spreads games across distinct time slots so umpires can cover more games sequentially.',
   weekendBTBTimePenalty: 'When a team plays back-to-back weekend days, prefers a later timeslot on the second day.',
   weekendDoubleHeaders: 'Penalizes 2+ games in the same Sat–Sun weekend. Higher = at most 1 game per weekend per team.',
   weekendSitouts: 'Penalizes when a team has zero games on a weekend. Higher = fewer idle weekends per team.',
@@ -101,7 +112,9 @@ function normalizeTime(t) {
 function slotBucket(dayOfWeek, time) {
   const minutes = timeSortKey(time);
   if (dayOfWeek === 0 || dayOfWeek === 6) {
-    return minutes < 720 ? 'WE_MORN' : 'WE_AFT'; // before/after noon
+    if (minutes < WKND_BUCKET_THRESHOLDS[0]) return 'WKND_EARLY';
+    if (minutes < WKND_BUCKET_THRESHOLDS[1]) return 'WKND_MID';
+    return 'WKND_LATE';
   }
   return ['SUN','MON','TUE','WED','THU','FRI','SAT'][dayOfWeek];
 }
@@ -727,6 +740,17 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
   // Higher values mean we should avoid claiming this slot if alternatives exist
   const slotScarcity = (precomputedMatchups && precomputedMatchups.slotScarcity) || null;
 
+  // Other divisions' games: used for cross-division clustering in slot scoring
+  // Map of "field|date" → count of games from other divisions
+  const otherDivGames = (precomputedMatchups && precomputedMatchups.otherDivisionGames) || null;
+  const otherDivFieldDate = new Map(); // "field|date" → count
+  if (otherDivGames) {
+    for (const g of otherDivGames) {
+      const key = g.field + '|' + g.date;
+      otherDivFieldDate.set(key, (otherDivFieldDate.get(key) || 0) + 1);
+    }
+  }
+
   // Precompute date-to-day-number map to avoid Date allocations in hot loops
   const dateToDay = new Map();
   const dateToDow = new Map(); // date → day-of-week (0=Sun..6=Sat)
@@ -844,6 +868,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
     const teamWeek = new Map();
     const teamWeekdayWeek = new Map(); // weekday games per M-F week per team
     const teamField = new Map();
+    const divFieldDate = new Map(); // "field|date" → count of this division's games (for clustering)
     const lastGameDate = new Map();
     for (let t = 0; t < numTeams; t++) {
       teamDay.set(t, new Set());
@@ -857,6 +882,21 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
     for (let t = 0; t < numTeams; t++) teamEndGames.set(t, 0);
     let failed = false;
     let runningPenalty = 0; // running estimate of penalties for early exit
+
+    // Clustering score: prefer fields where this division already has games, avoid other-division fields
+    function clusteringScore(field, date) {
+      const key = field + '|' + date;
+      let score = 0;
+      // Reward: this division already has game(s) on this field+date
+      const own = divFieldDate.get(key) || 0;
+      if (own > 0) score += 2;
+      // Penalize: other divisions have games on this field+date
+      if (otherDivFieldDate.size > 0) {
+        const other = otherDivFieldDate.get(key) || 0;
+        if (other > 0) score -= 1.5;
+      }
+      return score;
+    }
 
     // Shuffle which rounds go to which weekends
     const roundOrder = shuffle([...Array(weekendRounds.length).keys()]);
@@ -900,6 +940,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
             score -= (teamField.get(home).get(s.field) || 0) * 0.3;
             score -= (teamField.get(away).get(s.field) || 0) * 0.3;
             if (slotScarcity) score -= (slotScarcity.get(s.sortKey) || 0) * 0.5;
+            score += clusteringScore(s.field, s.date);
             score += Math.random() * 0.3;
             if (score > bestScore) { bestScore = score; bestSlot = s; }
           }
@@ -907,6 +948,8 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
 
         taken.add(bestSlot.sortKey);
         dateGameCount.set(bestSlot.date, (dateGameCount.get(bestSlot.date) || 0) + 1);
+        const fdKey = bestSlot.field + '|' + bestSlot.date;
+        divFieldDate.set(fdKey, (divFieldDate.get(fdKey) || 0) + 1);
         recordAssignment(schedule, bestSlot, home, away, teamDay, teamDaySorted, teamWeekend, teamWeek, teamWeekdayWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff, dateToDay, dateToWeekdayWeek, insertSorted);
 
         // Track weekend double-headers for early exit
@@ -950,6 +993,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
           score -= (teamField.get(tA).get(s.field) || 0) * 0.3;
           score -= (teamField.get(tB).get(s.field) || 0) * 0.3;
           if (slotScarcity) score -= (slotScarcity.get(s.sortKey) || 0) * 0.5;
+          score += clusteringScore(s.field, s.date);
           score += Math.random() * 0.3;
           if (score > overflowBestScore) { overflowBestScore = score; overflowBest = s; }
         }
@@ -960,6 +1004,8 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
         const game = getHomeAway(tA, tB);
         taken.add(overflowBest.sortKey);
         dateGameCount.set(overflowBest.date, (dateGameCount.get(overflowBest.date) || 0) + 1);
+        const fdKey2 = overflowBest.field + '|' + overflowBest.date;
+        divFieldDate.set(fdKey2, (divFieldDate.get(fdKey2) || 0) + 1);
         recordAssignment(schedule, overflowBest, game.home, game.away, teamDay, teamDaySorted, teamWeekend, teamWeek, teamWeekdayWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff, dateToDay, dateToWeekdayWeek, insertSorted);
         if (overflowBest.weekendGroup) {
           for (const t of [game.home, game.away]) {
@@ -1045,6 +1091,9 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
         // Avoid slots that other divisions also need
         if (slotScarcity) score -= (slotScarcity.get(s.sortKey) || 0) * 2;
 
+        // Division clustering: prefer fields where this division already has games
+        score += clusteringScore(s.field, s.date);
+
         // LCV: penalize slots in weeks that would constrain remaining games
         const sWdwk = dateToWeekdayWeek.get(s.date);
         if (sWdwk && unplacedWeekday.length <= 20) {
@@ -1066,6 +1115,8 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
       }
 
       taken.add(bestSlot.sortKey);
+      const fdKey3 = bestSlot.field + '|' + bestSlot.date;
+      divFieldDate.set(fdKey3, (divFieldDate.get(fdKey3) || 0) + 1);
       recordAssignment(schedule, bestSlot, home, away, teamDay, teamDaySorted, teamWeekend, teamWeek, teamWeekdayWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff, dateToDay, dateToWeekdayWeek, insertSorted);
 
       if (runningPenalty > bestScore) { failed = true; break; }
@@ -1108,6 +1159,7 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
   options = options || {};
   const leagueSplit = options.leagueSplit || false;
   const slotScarcity = options.slotScarcity || null;
+  const otherDivisionGames = options.otherDivisionGames || null;
 
   // Determine weekend count from slots so selectMatchups uses the same pairs as scheduling
   const weekendGroupSet = new Set();
@@ -1135,7 +1187,7 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
 
   const haGames = assignHomeAway(allPairs, numTeams);
   const games = haGames.map(g => ({ home: g.home, away: g.away }));
-  return tryBuildSchedule(games, slots, numTeams, onProgress, { weekendRounds, weekdayGames, slotScarcity }).then(result => {
+  return tryBuildSchedule(games, slots, numTeams, onProgress, { weekendRounds, weekdayGames, slotScarcity, otherDivisionGames }).then(result => {
     return annealSchedule(result.schedule, numTeams, slots).then(saResult => {
       if (saResult.improved) {
         result.schedule = saResult.schedule;
@@ -1292,9 +1344,9 @@ function scoreDetails(schedule, numTeams, allSlots) {
     }
   }
 
-  // Time-slot distribution: variance of weekend bucket counts per team
-  // Only weekend buckets (WE_MORN, WE_AFT) — weekday time distribution is less meaningful
-  const weekendBuckets = [...activeBuckets].filter(b => b === 'WE_MORN' || b === 'WE_AFT');
+  // Time-slot distribution: weighted variance of weekend bucket counts per team
+  // Three weekend buckets (WKND_EARLY, WKND_MID, WKND_LATE) — weekday time distribution is less meaningful
+  const weekendBuckets = [...activeBuckets].filter(b => b === 'WKND_EARLY' || b === 'WKND_MID' || b === 'WKND_LATE');
   let timeDistribution = 0;
   if (weekendBuckets.length > 1) {
     for (let t = 0; t < numTeams; t++) {
@@ -1304,9 +1356,25 @@ function scoreDetails(schedule, numTeams, allSlots) {
         const b = slotBucket(g.dayOfWeek, g.time);
         if (bucketCounts.has(b)) bucketCounts.set(b, bucketCounts.get(b) + 1);
       }
-      const vals = [...bucketCounts.values()];
-      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-      timeDistribution += vals.reduce((a, v) => a + (v - mean) ** 2, 0) / vals.length;
+      // Weight early and late more than mid
+      const vals = [...bucketCounts.entries()];
+      const mean = vals.reduce((a, [,v]) => a + v, 0) / vals.length;
+      timeDistribution += vals.reduce((a, [b, v]) => a + (WKND_BUCKET_IMPORTANCE[b] || 1) * (v - mean) ** 2, 0) / vals.length;
+    }
+  }
+
+  // Time-slot spread: penalize simultaneous games on the same weekend date
+  // Umpires can only be at one field at a time, so prefer distinct time slots per date
+  let timeSlotSpread = 0;
+  {
+    const dateTimeCounts = new Map(); // "date|time" → number of games
+    for (const g of schedule) {
+      if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
+      const key = g.date + '|' + g.time;
+      dateTimeCounts.set(key, (dateTimeCounts.get(key) || 0) + 1);
+    }
+    for (const count of dateTimeCounts.values()) {
+      if (count > 1) timeSlotSpread += count - 1; // each extra simultaneous game is penalized
     }
   }
 
@@ -1389,11 +1457,55 @@ function scoreDetails(schedule, numTeams, allSlots) {
     }
   }
 
+  // Field continuity: penalize non-consecutive same-division weekend games on same field
+  // For each (field, date) on weekends, find available time slots and this division's games.
+  // Penalize empty slots between the division's first and last game on that field.
+  let fieldContinuity = 0;
+  {
+    // Build map of available weekend time slots per (field, date)
+    const fieldDateTimes = new Map(); // key: "field|date" -> sorted array of time sort keys
+    for (const s of allSlots) {
+      if (s.dayOfWeek !== 0 && s.dayOfWeek !== 6) continue;
+      const key = s.field + '|' + s.date;
+      if (!fieldDateTimes.has(key)) fieldDateTimes.set(key, []);
+      fieldDateTimes.get(key).push(timeSortKey(s.time));
+    }
+    for (const [, arr] of fieldDateTimes) arr.sort((a, b) => a - b);
+
+    // Build map of scheduled game times per (field, date) for this division
+    const fieldDateGameTimes = new Map();
+    for (const g of schedule) {
+      if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
+      const key = g.field + '|' + g.date;
+      if (!fieldDateGameTimes.has(key)) fieldDateGameTimes.set(key, []);
+      fieldDateGameTimes.get(key).push(timeSortKey(g.time));
+    }
+    for (const [, arr] of fieldDateGameTimes) arr.sort((a, b) => a - b);
+
+    // For each (field, date) with games, count empty slots between first and last game
+    for (const [key, gameTimes] of fieldDateGameTimes) {
+      if (gameTimes.length < 2) continue;
+      const allTimes = fieldDateTimes.get(key);
+      if (!allTimes) continue;
+      const firstGame = gameTimes[0];
+      const lastGame = gameTimes[gameTimes.length - 1];
+      // Count available slots between first and last game that have no game
+      const gameSet = new Set(gameTimes);
+      for (const t of allTimes) {
+        if (t > firstGame && t < lastGame && !gameSet.has(t)) {
+          fieldContinuity++; // gap between this division's games
+        }
+      }
+    }
+  }
+
   return {
     weekendSitouts, weekendDoubleHeaders, gapVariance: Math.round(gapVariance * 100) / 100,
     shortGapPenalty: Math.round(shortGapPenalty * 100) / 100,
     timeDistribution: Math.round(timeDistribution * 100) / 100,
+    timeSlotSpread: Math.round(timeSlotSpread * 100) / 100,
     fieldBalance: Math.round(fieldBalance * 100) / 100,
+    fieldContinuity,
     earlySeasonDensity, endOfSeasonDensity,
     weekendBTBTimePenalty,
     satSunBalance: Math.round(satSunBalance * 100) / 100,
@@ -1401,9 +1513,41 @@ function scoreDetails(schedule, numTeams, allSlots) {
   };
 }
 
+// ─── Cross-Division Scoring ─────────────────────────────────────────────────
+function scoreCrossDivisionClustering(divisionResults) {
+  // For each (field, date), collect all games sorted by time across all divisions.
+  // Count division switches between consecutive games.
+  // A-B-A (switch back) is penalized more heavily than A-B (single switch).
+  const fieldDateGames = new Map(); // key: "field|date" -> [{time, division}]
+  for (const dr of divisionResults) {
+    for (const g of dr.schedule) {
+      const key = g.field + '|' + g.date;
+      if (!fieldDateGames.has(key)) fieldDateGames.set(key, []);
+      fieldDateGames.get(key).push({ timeSortKey: timeSortKey(g.time), division: dr.division.name });
+    }
+  }
+
+  let penalty = 0;
+  for (const [, games] of fieldDateGames) {
+    if (games.length < 2) continue;
+    games.sort((a, b) => a.timeSortKey - b.timeSortKey);
+    for (let i = 1; i < games.length; i++) {
+      if (games[i].division !== games[i - 1].division) {
+        // Basic switch penalty
+        penalty += 1;
+        // Extra penalty for A-B-A pattern (switching back)
+        if (i >= 2 && games[i].division === games[i - 2].division) {
+          penalty += 3; // much heavier for back-and-forth
+        }
+      }
+    }
+  }
+  return penalty;
+}
+
 // ─── Module 4b: Simulated Annealing ─────────────────────────────────────────
 function annealSchedule(schedule, numTeams, slots, maxIterations) {
-  if (!maxIterations) maxIterations = 500;
+  if (!maxIterations) maxIterations = 2000;
   const current = schedule.map(g => ({...g}));
   let currentScore = scoreCandidate(current, numTeams, slots);
   const initialScore = currentScore;
@@ -1423,6 +1567,49 @@ function annealSchedule(schedule, numTeams, slots, maxIterations) {
   let dateToGameIndices = buildDateIndex();
   const multiGameDates = () => [...dateToGameIndices.entries()].filter(([, idx]) => idx.length >= 2);
 
+  // Build slot lookup by sortKey for relocations
+  const slotBySortKey = new Map();
+  for (const s of slots) slotBySortKey.set(s.sortKey, s);
+
+  // Track which slot sortKeys are currently used
+  const usedKeys = new Set();
+  for (const g of current) {
+    usedKeys.add(g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field);
+  }
+  function slotKey(g) {
+    return g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field;
+  }
+
+  // Unused slots array (rebuilt periodically since relocations change it)
+  let unusedSlots = slots.filter(s => !usedKeys.has(s.sortKey));
+
+  // Hard constraint validation for a single game's teams after relocation
+  function relocateValid(gameIdx) {
+    const teams = [current[gameIdx].home, current[gameIdx].away];
+    for (const t of teams) {
+      const dates = [];
+      for (const g of current) {
+        if (g.home === t || g.away === t) dates.push(g.date);
+      }
+      dates.sort();
+      for (let k = 1; k < dates.length; k++) {
+        if (dates[k] === dates[k - 1]) return false;
+      }
+      if (teamHasThreeInFourDays(dates)) return false;
+      const weekdayByWeek = new Map();
+      for (const d of dates) {
+        const dt = new Date(d + 'T00:00:00');
+        const dow = dt.getDay();
+        if (dow >= 1 && dow <= 5) {
+          const wk = isoWeek(d);
+          weekdayByWeek.set(wk, (weekdayByWeek.get(wk) || 0) + 1);
+          if (weekdayByWeek.get(wk) > 1) return false;
+        }
+      }
+    }
+    return true;
+  }
+
   // Hard constraint validation for cross-date swaps (applied after swap)
   function crossDateSwapValid(i, j) {
     const affectedTeams = new Set([current[i].home, current[i].away, current[j].home, current[j].away]);
@@ -1432,13 +1619,10 @@ function annealSchedule(schedule, numTeams, slots, maxIterations) {
         if (g.home === t || g.away === t) dates.push(g.date);
       }
       dates.sort();
-      // No duplicate dates
       for (let k = 1; k < dates.length; k++) {
         if (dates[k] === dates[k - 1]) return false;
       }
-      // No 3 in 4 days
       if (teamHasThreeInFourDays(dates)) return false;
-      // No 2 weekday games in same M-F span
       const weekdayByWeek = new Map();
       for (const d of dates) {
         const dt = new Date(d + 'T00:00:00');
@@ -1485,46 +1669,85 @@ function annealSchedule(schedule, numTeams, slots, maxIterations) {
     function step() {
       const batchEnd = Math.min(iter + 100, maxIterations);
       for (; iter < batchEnd; iter++) {
-        const useSameDate = Math.random() < 0.7;
-        let swapI, swapJ, saved, sameDate;
-
-        if (useSameDate) {
+        const r = Math.random();
+        // Move types: 50% same-date swap, 20% cross-date swap, 30% relocate to unused slot
+        if (r < 0.5) {
+          // Same-date swap
           const candidates = multiGameDates();
           if (candidates.length === 0) { T *= alpha; continue; }
           const [, indices] = candidates[Math.floor(Math.random() * candidates.length)];
           const a = Math.floor(Math.random() * indices.length);
           let b = Math.floor(Math.random() * (indices.length - 1));
           if (b >= a) b++;
-          swapI = indices[a];
-          swapJ = indices[b];
-          sameDate = true;
-          saved = swapSlots(swapI, swapJ, true);
-        } else {
-          swapI = Math.floor(Math.random() * current.length);
-          swapJ = Math.floor(Math.random() * (current.length - 1));
+          const swapI = indices[a], swapJ = indices[b];
+          const saved = swapSlots(swapI, swapJ, true);
+
+          const newScore = scoreCandidate(current, numTeams, slots);
+          const delta = newScore - currentScore;
+          if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
+            currentScore = newScore;
+            if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g})); }
+          } else {
+            revertSwap(swapI, swapJ, saved);
+          }
+        } else if (r < 0.7) {
+          // Cross-date swap
+          const swapI = Math.floor(Math.random() * current.length);
+          let swapJ = Math.floor(Math.random() * (current.length - 1));
           if (swapJ >= swapI) swapJ++;
           if (current[swapI].date === current[swapJ].date) { T *= alpha; continue; }
-          sameDate = false;
-          saved = swapSlots(swapI, swapJ, false);
+          const saved = swapSlots(swapI, swapJ, false);
           if (!crossDateSwapValid(swapI, swapJ)) {
             revertSwap(swapI, swapJ, saved);
             T *= alpha;
             continue;
           }
-        }
 
-        const newScore = scoreCandidate(current, numTeams, slots);
-        const delta = newScore - currentScore;
-
-        if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
-          currentScore = newScore;
-          if (!sameDate) dateToGameIndices = buildDateIndex();
-          if (currentScore < bestScore) {
-            bestScore = currentScore;
-            bestSchedule = current.map(g => ({...g}));
+          const newScore = scoreCandidate(current, numTeams, slots);
+          const delta = newScore - currentScore;
+          if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
+            currentScore = newScore;
+            dateToGameIndices = buildDateIndex();
+            if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g})); }
+          } else {
+            revertSwap(swapI, swapJ, saved);
           }
         } else {
-          revertSwap(swapI, swapJ, saved);
+          // Relocate: move a game to an unused slot
+          if (unusedSlots.length === 0) { T *= alpha; continue; }
+          const gi = Math.floor(Math.random() * current.length);
+          const si = Math.floor(Math.random() * unusedSlots.length);
+          const newSlot = unusedSlots[si];
+          const g = current[gi];
+          const savedSlot = { date: g.date, dayOfWeek: g.dayOfWeek, time: g.time, field: g.field };
+          const oldKey = slotKey(g);
+
+          // Apply relocation
+          g.date = newSlot.date;
+          g.dayOfWeek = newSlot.dayOfWeek;
+          g.time = newSlot.time;
+          g.field = newSlot.field;
+
+          if (!relocateValid(gi)) {
+            // Revert
+            Object.assign(g, savedSlot);
+            T *= alpha;
+            continue;
+          }
+
+          const newScore = scoreCandidate(current, numTeams, slots);
+          const delta = newScore - currentScore;
+          if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
+            currentScore = newScore;
+            // Update used/unused tracking
+            usedKeys.delete(oldKey);
+            usedKeys.add(newSlot.sortKey);
+            unusedSlots[si] = slotBySortKey.get(oldKey) || { ...savedSlot, sortKey: oldKey };
+            dateToGameIndices = buildDateIndex();
+            if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g})); }
+          } else {
+            Object.assign(g, savedSlot);
+          }
         }
 
         T *= alpha;

@@ -28,6 +28,7 @@
         <th>Teams</th>
         <th>Games/Team</th>
         <th>AL/NL</th>
+        <th>Excluded Days</th>
         <th>Fields</th>
         <th></th>
       </tr></thead>
@@ -48,6 +49,7 @@
     <div id="penaltyWeights" class="penalty-body hidden">
       <p class="penalty-hint">Controls how much the optimizer cares about each rule. Higher = stronger priority. Set to 0 to ignore a rule.</p>
       <div class="penalty-grid" id="penaltyGrid"></div>
+      <button class="btn-secondary btn-sm" onclick="resetWeights()">Reset to Defaults</button>
       <div class="hard-constraints">
         <p class="hard-constraints-title">Hard Constraints (always enforced)</p>
         <ul>
