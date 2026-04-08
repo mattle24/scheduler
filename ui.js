@@ -6,7 +6,7 @@ const STORAGE_KEY = 'scheduler_state';
 // ─── LocalStorage Persistence ───────────────────────────────────────────────
 
 function saveState() {
-  const rows = document.querySelectorAll('#divisionTable tbody tr');
+  const rows = document.querySelectorAll('#divisionTable tbody tr:not(.div-weights-row)');
   const divisions = [];
   for (const tr of rows) {
     const uncheckedFields = [];
@@ -150,6 +150,25 @@ function buildPenaltyGrid() {
 
 // ─── Division Management ─────────────────────────────────────────────────────
 
+// Keys and labels for per-division weight overrides
+const DIV_WEIGHT_KEYS = [
+  { key: 'weekendDoubleHeaders', label: 'Weekend Back-to-Back' },
+  { key: 'weekendSitouts',       label: 'Weekend Sit-outs' },
+  { key: 'btbBalance',           label: 'Back-to-Back Balance' },
+  { key: 'satSunBalance',        label: 'Sat/Sun Balance' },
+  { key: 'gapVariance',          label: 'Gap Variance' },
+  { key: 'shortGapPenalty',      label: 'Short Gap Penalty' },
+];
+
+function toggleDivWeights(btn) {
+  const tr = btn.closest('tr');
+  const weightsTr = tr.nextElementSibling;
+  if (weightsTr && weightsTr.classList.contains('div-weights-row')) {
+    weightsTr.classList.toggle('hidden');
+    btn.classList.toggle('active');
+  }
+}
+
 function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit, excludedDays) {
   excludedDays = excludedDays || [];
   const tbody = document.querySelector('#divisionTable tbody');
@@ -167,18 +186,57 @@ function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit, excludedDays)
     <td style="text-align:center;"><input type="checkbox" class="div-league" ${leagueSplit ? 'checked' : ''}></td>
     <td><div class="div-excluded-days">${dayCheckboxes}</div></td>
     <td><div class="div-fields"></div></td>
-    <td><button class="btn-remove" onclick="removeDivisionRow(this)" title="Remove division">&times;</button></td>
+    <td style="white-space:nowrap;">
+      <button class="btn-secondary btn-sm btn-div-weights" onclick="toggleDivWeights(this)" title="Per-division weight overrides">Weights</button>
+      <button class="btn-remove" onclick="removeDivisionRow(this)" title="Remove division">&times;</button>
+    </td>
   `;
 
+  // Build the weights override row (hidden by default)
+  const weightsTr = document.createElement('tr');
+  weightsTr.className = 'div-weights-row hidden';
+  const weightsTd = document.createElement('td');
+  weightsTd.colSpan = 7;
+
+  const panel = document.createElement('div');
+  panel.className = 'div-weights-panel';
+  const hint = document.createElement('p');
+  hint.className = 'penalty-hint';
+  hint.textContent = 'Override penalty weights for this division only. Leave blank to use the global value.';
+  panel.appendChild(hint);
+  const grid = document.createElement('div');
+  grid.className = 'div-weights-grid';
+  for (const { key, label } of DIV_WEIGHT_KEYS) {
+    const lbl = document.createElement('label');
+    lbl.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = '0';
+    input.step = '1';
+    input.placeholder = String(WEIGHTS[key]);
+    input.setAttribute('data-weight', key);
+    grid.appendChild(lbl);
+    grid.appendChild(input);
+  }
+  panel.appendChild(grid);
+  weightsTd.appendChild(panel);
+  weightsTr.appendChild(weightsTd);
+
   tbody.appendChild(tr);
+  tbody.appendChild(weightsTr);
   populateFieldCheckboxes(tr);
   debouncedSave();
 }
 
 function removeDivisionRow(btn) {
   const tbody = document.querySelector('#divisionTable tbody');
-  if (tbody.rows.length <= 1) return;
-  btn.closest('tr').remove();
+  // Count only main rows (not weights rows) to prevent removing last division
+  const mainRows = tbody.querySelectorAll('tr:not(.div-weights-row)');
+  if (mainRows.length <= 1) return;
+  const tr = btn.closest('tr');
+  const weightsTr = tr.nextElementSibling;
+  if (weightsTr && weightsTr.classList.contains('div-weights-row')) weightsTr.remove();
+  tr.remove();
   debouncedSave();
 }
 
@@ -210,7 +268,7 @@ function updateFieldChoices() {
   if (JSON.stringify(fields) === JSON.stringify(cachedFieldNames)) return;
   cachedFieldNames = fields;
 
-  const rows = document.querySelectorAll('#divisionTable tbody tr');
+  const rows = document.querySelectorAll('#divisionTable tbody tr:not(.div-weights-row)');
   for (const tr of rows) {
     // Preserve checked state for fields that still exist
     const prev = new Map();
@@ -236,8 +294,22 @@ function updateFieldChoices() {
   }
 }
 
+function readDivWeightOverrides(tr) {
+  const overrides = {};
+  const weightsTr = tr && tr.nextElementSibling;
+  if (!weightsTr || !weightsTr.classList.contains('div-weights-row')) return overrides;
+  for (const { key } of DIV_WEIGHT_KEYS) {
+    const input = weightsTr.querySelector(`[data-weight="${key}"]`);
+    if (input && input.value !== '') {
+      const v = parseFloat(input.value);
+      if (!isNaN(v)) overrides[key] = v;
+    }
+  }
+  return overrides;
+}
+
 function readDivisions() {
-  const rows = document.querySelectorAll('#divisionTable tbody tr');
+  const rows = document.querySelectorAll('#divisionTable tbody tr:not(.div-weights-row)');
   if (rows.length === 0) throw new Error('Add at least one division');
   const divs = [];
   for (let i = 0; i < rows.length; i++) {
@@ -300,6 +372,8 @@ function generate() {
         }
       }
 
+      const mainRows = document.querySelectorAll('#divisionTable tbody tr:not(.div-weights-row)');
+
       for (let i = 0; i < divs.length; i++) {
         const div = divs[i];
         const divLabel = `Division "${div.name}" (${i + 1}/${divs.length})`;
@@ -308,6 +382,9 @@ function generate() {
         const divSlots = allSlots.filter(s =>
           div.fields.includes(s.field) && !claimedKeys.has(s.sortKey) && !div.excludedDays.includes(s.dayOfWeek)
         );
+
+        // Read per-division weight overrides from the weights panel for this row
+        const divWeightOverrides = readDivWeightOverrides(mainRows[i]);
 
         // Phase 1: Build
         statusBox.innerHTML = `
@@ -320,7 +397,7 @@ function generate() {
           document.getElementById('progressFill').style.width = percent + '%';
           const label = score === Infinity ? percent + '%' : percent + '% — score: ' + score.toFixed(1);
           document.getElementById('progressLabel').textContent = label;
-        }, { leagueSplit: div.leagueSplit, slotScarcity });
+        }, { leagueSplit: div.leagueSplit, slotScarcity, weights: divWeightOverrides });
 
         const finalSchedule = result.schedule;
         const finalDetails = scoreDetails(finalSchedule, div.numTeams, divSlots);
@@ -374,12 +451,13 @@ function generate() {
               .filter((_, j) => j !== i)
               .flatMap(r => r.schedule);
 
+            const divWeightOverrides = readDivWeightOverrides(mainRows[i]);
             const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, (pct, score) => {
               const percent = Math.round(pct * 100);
               document.getElementById('progressFill').style.width = percent + '%';
               const label = score === Infinity ? percent + '%' : percent + '% — score: ' + score.toFixed(1);
               document.getElementById('progressLabel').textContent = label;
-            }, { leagueSplit: div.leagueSplit, slotScarcity, otherDivisionGames });
+            }, { leagueSplit: div.leagueSplit, slotScarcity, otherDivisionGames, weights: divWeightOverrides });
 
             const newSchedule = result.schedule;
             const newDetails = scoreDetails(newSchedule, div.numTeams, divSlots);
@@ -615,6 +693,8 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
       tip: 'How uneven Saturday vs Sunday game counts are per team. 0 = perfectly balanced.' },
     { label: 'Back-to-Back Balance', value: details.btbBalance, min: 0,
       tip: 'Variance of back-to-back (consecutive day) game counts across teams. 0 = all teams have equal back-to-backs.' },
+    { label: 'Short Gap Balance', value: details.shortGapBalance, min: 0,
+      tip: 'Variance of short-rest game counts across teams (< 3 days rest). 0 = all teams have equal numbers of short-rest games.' },
   ];
 
   const scoreCard = document.createElement('div');

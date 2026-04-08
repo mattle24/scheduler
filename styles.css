@@ -105,6 +105,13 @@ th { background: #f3f4f6; font-weight: 600; font-size: .8rem; text-transform: up
 .div-excluded-days label { font-weight: 400; font-size: .8rem; display: flex; align-items: center; gap: .2rem; cursor: pointer; white-space: nowrap; }
 .btn-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; padding: .2rem .4rem; line-height: 1; }
 .btn-remove:hover { color: var(--danger); }
+.btn-div-weights { font-size: .7rem; padding: .2rem .45rem; margin-right: .2rem; }
+.btn-div-weights.active { background: #c7d2fe; color: #3730a3; }
+.div-weights-row td { padding: 0; border-top: none; }
+.div-weights-panel { background: #f9fafb; border: 1px solid var(--border); border-radius: .3rem; padding: .6rem .75rem; margin: .2rem .4rem .4rem; }
+.div-weights-grid { display: grid; grid-template-columns: 1fr auto; gap: .3rem .6rem; align-items: center; }
+.div-weights-grid label { font-size: .8rem; font-weight: 500; }
+.div-weights-grid input[type="number"] { width: 60px; padding: .2rem .35rem; font-size: .82rem; }
 
 /* Division result sections */
 .division-section { margin-bottom: 2rem; }
