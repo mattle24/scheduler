@@ -348,10 +348,7 @@ function generate() {
         for (let round = 0; round < MAX_ROUNDS; round++) {
           let improved = false;
 
-          // Compute global score before this round
-          let globalScoreBefore = divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
-            + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0)
-          + scoreWeekendOtherDivField(divisionResults) * (WEIGHTS.weekendOtherDivField || 0);
+          let currentGlobalScore = globalScore(divisionResults);
 
           for (let i = 0; i < divisionResults.length; i++) {
             const dr = divisionResults[i];
@@ -396,15 +393,10 @@ function generate() {
             const oldDetails = dr.details;
             const oldSchedule = dr.schedule;
             divisionResults[i] = { ...dr, schedule: newSchedule, details: newDetails, slots: divSlots };
-            const newGlobalScore = divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
-              + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0)
-          + scoreWeekendOtherDivField(divisionResults) * (WEIGHTS.weekendOtherDivField || 0);
+            const newGlobalScore = globalScore(divisionResults);
             divisionResults[i] = { ...dr, schedule: oldSchedule, details: oldDetails };
-            const oldGlobalScore = divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
-              + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0)
-          + scoreWeekendOtherDivField(divisionResults) * (WEIGHTS.weekendOtherDivField || 0);
 
-            if (newGlobalScore < oldGlobalScore) {
+            if (newGlobalScore < currentGlobalScore) {
               // Accept: update division result and claim new slots
               divisionResults[i] = {
                 division: div,
@@ -417,6 +409,7 @@ function generate() {
                 const key = g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field;
                 claimedKeys.add(key);
               }
+              currentGlobalScore = newGlobalScore;
               improved = true;
             } else {
               // Reject: re-claim original slots
@@ -440,6 +433,12 @@ function generate() {
 }
 
 // ─── Scoring ─────────────────────────────────────────────────────────────────
+
+function globalScore(divisionResults) {
+  return divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
+    + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0)
+    + scoreWeekendOtherDivField(divisionResults) * (WEIGHTS.weekendOtherDivField || 0);
+}
 
 function weightedScore(d) {
   let score = 0;

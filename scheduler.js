@@ -1508,6 +1508,7 @@ function scoreDetails(schedule, numTeams, allSlots) {
   // For each (field, date) on weekends, find available time slots and this division's games.
   // Penalize empty slots between the division's first and last game on that field.
   let fieldContinuity = 0;
+  let loneWeekendGame = 0;
   {
     // Build map of available weekend time slots per (field, date)
     const fieldDateTimes = new Map(); // key: "field|date" -> sorted array of time sort keys
@@ -1544,6 +1545,11 @@ function scoreDetails(schedule, numTeams, allSlots) {
         }
       }
     }
+
+    // Lone weekend game: field+date combinations with only one game for this division
+    for (const gameTimes of fieldDateGameTimes.values()) {
+      if (gameTimes.length === 1) loneWeekendGame++;
+    }
   }
 
   // Back-to-back balance: variance of per-team back-to-back (consecutive day) counts
@@ -1559,21 +1565,7 @@ function scoreDetails(schedule, numTeams, allSlots) {
       btbCounts.push(btb);
     }
     const mean = btbCounts.reduce((a, b) => a + b, 0) / btbCounts.length;
-    btbBalance = btbCounts.reduce((a, v) => a + (v - mean) ** 2, 0); // sum of squared deviations (not averaged)
-  }
-
-  // Lone weekend game: games that are the only game for this division on their field+date
-  let loneWeekendGame = 0;
-  {
-    const fieldDateCount = new Map();
-    for (const g of schedule) {
-      if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
-      const key = g.field + '|' + g.date;
-      fieldDateCount.set(key, (fieldDateCount.get(key) || 0) + 1);
-    }
-    for (const count of fieldDateCount.values()) {
-      if (count === 1) loneWeekendGame++;
-    }
+    btbBalance = btbCounts.reduce((a, v) => a + (v - mean) ** 2, 0) / btbCounts.length;
   }
 
   return {
