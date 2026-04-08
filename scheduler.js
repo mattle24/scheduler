@@ -138,6 +138,10 @@ function formatTimeDisplay(t) {
   return t.replace(/^(\d):/, '0$1:').toUpperCase().replace(/(AM|PM)/, ' $1');
 }
 
+function slotKey(g) {
+  return g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field;
+}
+
 function addDays(dateString, n) {
   const d = new Date(dateString + 'T00:00:00');
   d.setDate(d.getDate() + n);
@@ -188,19 +192,6 @@ function teamHasThreeInFourDays(datesArray) {
   return false;
 }
 
-// Returns true if newDate is a weekday and the team already has a game on another weekday in the same M-F span
-function hasWeekdayGameThisWeek(teamDaySet, newDate) {
-  const d = new Date(newDate + 'T00:00:00');
-  const dow = d.getDay();
-  if (dow === 0 || dow === 6) return false; // weekend, no constraint
-  // Check Mon-Fri of this week using addDays from newDate
-  const mondayOffset = -(dow - 1);
-  for (let i = 0; i < 5; i++) {
-    const checkStr = addDays(newDate, mondayOffset + i);
-    if (checkStr !== newDate && teamDaySet.has(checkStr)) return true;
-  }
-  return false;
-}
 
 // ─── Module 1: Parse TSV ────────────────────────────────────────────────────
 function parseTSV(text) {
@@ -503,38 +494,6 @@ function selectMatchups(rounds, numTeams, gamesPerTeam, numWeekends) {
   return { weekendRounds, weekdayGames };
 }
 
-// Wrapper that matches the old generateMatchups signature for ui.js compatibility
-function generateMatchups(numTeams, gamesPerTeam) {
-  const totalGames = numTeams * gamesPerTeam / 2;
-  if (totalGames !== Math.floor(totalGames)) {
-    throw new Error(`${numTeams} teams × ${gamesPerTeam} games = ${numTeams * gamesPerTeam} team-games, which is odd and can't form whole matchups. Adjust so the product is even.`);
-  }
-
-  const rounds = generateTournamentRounds(numTeams);
-
-  // Collect games by cycling through rounds until we have enough
-  const games = [];
-  let roundIdx = 0;
-  while (games.length < totalGames) {
-    const round = rounds[roundIdx % rounds.length];
-    for (const game of round) {
-      if (games.length >= totalGames) break;
-      games.push({ teamA: game[0], teamB: game[1] });
-    }
-    roundIdx++;
-  }
-
-  // Verify counts
-  const counts = new Array(numTeams).fill(0);
-  for (const g of games) { counts[g.teamA]++; counts[g.teamB]++; }
-  for (let i = 0; i < numTeams; i++) {
-    if (counts[i] !== gamesPerTeam) {
-      throw new Error(`Matchup generation error: team ${i + 1} has ${counts[i]} games instead of ${gamesPerTeam}`);
-    }
-  }
-
-  return games;
-}
 
 // ─── Module 3: Assign Home/Away ──────────────────────────────────────────────
 function assignHomeAway(games, numTeams) {
@@ -1298,6 +1257,8 @@ function recordAssignment(schedule, slot, home, away, teamDay, teamDaySorted, te
   schedule.push({
     date: slot.date,
     dayOfWeek: slot.dayOfWeek,
+    weekendGroup: slot.weekendGroup,
+    sortKey: slot.sortKey,
     time: slot.time,
     field: slot.field,
     home,
@@ -1349,8 +1310,7 @@ function scoreDetails(schedule, numTeams, allSlots) {
   for (let t = 0; t < numTeams; t++) {
     const teamWeekends = new Set();
     for (const g of teamGames.get(t)) {
-      const wg = getWeekendGroup(g.date);
-      if (wg) teamWeekends.add(wg);
+      if (g.weekendGroup) teamWeekends.add(g.weekendGroup);
     }
     let sitouts = 0;
     for (const wg of activeWeekends) {
@@ -1366,8 +1326,7 @@ function scoreDetails(schedule, numTeams, allSlots) {
   for (let t = 0; t < numTeams; t++) {
     const wgCount = new Map();
     for (const g of teamGames.get(t)) {
-      const wg = getWeekendGroup(g.date);
-      if (wg) wgCount.set(wg, (wgCount.get(wg) || 0) + 1);
+      if (g.weekendGroup) wgCount.set(g.weekendGroup, (wgCount.get(g.weekendGroup) || 0) + 1);
     }
     for (const [, c] of wgCount) {
       if (c > 1) weekendDoubleHeaders += c - 1;
@@ -1475,10 +1434,8 @@ function scoreDetails(schedule, numTeams, allSlots) {
       const prevDay = addDays(g.date, -1);
       const prevGame = gamesByDate.get(prevDay);
       if (prevGame) {
-        const prevDow = new Date(prevDay + 'T00:00:00').getDay();
-        const curDow = new Date(g.date + 'T00:00:00').getDay();
-        const isFriSat = (prevDow === 5 && curDow === 6);
-        const isSatSun = (prevDow === 6 && curDow === 0);
+        const isFriSat = (prevGame.dayOfWeek === 5 && g.dayOfWeek === 6);
+        const isSatSun = (prevGame.dayOfWeek === 6 && g.dayOfWeek === 0);
         if (isFriSat || isSatSun) {
           if (timeSortKey(g.time) < timeSortKey(prevGame.time)) {
             weekendBTBTimePenalty++;
@@ -1493,9 +1450,8 @@ function scoreDetails(schedule, numTeams, allSlots) {
   for (let t = 0; t < numTeams; t++) {
     let satCount = 0, sunCount = 0;
     for (const g of teamGames.get(t)) {
-      const dow = new Date(g.date + 'T00:00:00').getDay();
-      if (dow === 6) satCount++;
-      if (dow === 0) sunCount++;
+      if (g.dayOfWeek === 6) satCount++;
+      if (g.dayOfWeek === 0) sunCount++;
     }
     const total = satCount + sunCount;
     if (total > 0) {
@@ -1652,7 +1608,7 @@ function annealSchedule(schedule, numTeams, slots, maxIterations) {
   const current = schedule.map(g => ({...g}));
   let currentScore = scoreCandidate(current, numTeams, slots);
   const initialScore = currentScore;
-  let bestSchedule = current.map(g => ({...g}));
+  let bestSchedule = current.map(g => ({...g, sortKey: slotKey(g)}));
   let bestScore = currentScore;
 
   // Build date → game indices map for same-date swaps
@@ -1674,12 +1630,7 @@ function annealSchedule(schedule, numTeams, slots, maxIterations) {
 
   // Track which slot sortKeys are currently used
   const usedKeys = new Set();
-  for (const g of current) {
-    usedKeys.add(g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field);
-  }
-  function slotKey(g) {
-    return g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field;
-  }
+  for (const g of current) usedKeys.add(g.sortKey);
 
   // Unused slots array (rebuilt periodically since relocations change it)
   let unusedSlots = slots.filter(s => !usedKeys.has(s.sortKey));
@@ -1750,8 +1701,8 @@ function annealSchedule(schedule, numTeams, slots, maxIterations) {
 
   function swapSlots(i, j, sameDate) {
     const saved = {
-      i: { date: current[i].date, dayOfWeek: current[i].dayOfWeek, time: current[i].time, field: current[i].field },
-      j: { date: current[j].date, dayOfWeek: current[j].dayOfWeek, time: current[j].time, field: current[j].field }
+      i: { date: current[i].date, dayOfWeek: current[i].dayOfWeek, weekendGroup: current[i].weekendGroup, time: current[i].time, field: current[i].field },
+      j: { date: current[j].date, dayOfWeek: current[j].dayOfWeek, weekendGroup: current[j].weekendGroup, time: current[j].time, field: current[j].field }
     };
     if (sameDate) {
       [current[i].time, current[j].time] = [current[j].time, current[i].time];
@@ -1759,6 +1710,7 @@ function annealSchedule(schedule, numTeams, slots, maxIterations) {
     } else {
       [current[i].date, current[j].date] = [current[j].date, current[i].date];
       [current[i].dayOfWeek, current[j].dayOfWeek] = [current[j].dayOfWeek, current[i].dayOfWeek];
+      [current[i].weekendGroup, current[j].weekendGroup] = [current[j].weekendGroup, current[i].weekendGroup];
       [current[i].time, current[j].time] = [current[j].time, current[i].time];
       [current[i].field, current[j].field] = [current[j].field, current[i].field];
     }
@@ -1797,7 +1749,7 @@ function annealSchedule(schedule, numTeams, slots, maxIterations) {
           const delta = newScore - currentScore;
           if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
             currentScore = newScore;
-            if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g})); }
+            if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g, sortKey: slotKey(g)})); }
           } else {
             revertSwap(swapI, swapJ, saved);
           }
@@ -1819,7 +1771,7 @@ function annealSchedule(schedule, numTeams, slots, maxIterations) {
           if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
             currentScore = newScore;
             dateToGameIndices = buildDateIndex();
-            if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g})); }
+            if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g, sortKey: slotKey(g)})); }
           } else {
             revertSwap(swapI, swapJ, saved);
           }
@@ -1830,12 +1782,13 @@ function annealSchedule(schedule, numTeams, slots, maxIterations) {
           const si = Math.floor(Math.random() * unusedSlots.length);
           const newSlot = unusedSlots[si];
           const g = current[gi];
-          const savedSlot = { date: g.date, dayOfWeek: g.dayOfWeek, time: g.time, field: g.field };
+          const savedSlot = { date: g.date, dayOfWeek: g.dayOfWeek, weekendGroup: g.weekendGroup, time: g.time, field: g.field };
           const oldKey = slotKey(g);
 
           // Apply relocation
           g.date = newSlot.date;
           g.dayOfWeek = newSlot.dayOfWeek;
+          g.weekendGroup = newSlot.weekendGroup;
           g.time = newSlot.time;
           g.field = newSlot.field;
 
@@ -1855,7 +1808,7 @@ function annealSchedule(schedule, numTeams, slots, maxIterations) {
             usedKeys.add(newSlot.sortKey);
             unusedSlots[si] = slotBySortKey.get(oldKey) || { ...savedSlot, sortKey: oldKey };
             dateToGameIndices = buildDateIndex();
-            if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g})); }
+            if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g, sortKey: slotKey(g)})); }
           } else {
             Object.assign(g, savedSlot);
           }
@@ -1892,7 +1845,7 @@ function annealSchedule(schedule, numTeams, slots, maxIterations) {
             usedKeys.add(newSlot.sortKey);
             const newSlotUnusedIdx = unusedSlots.findIndex(s => s.sortKey === newSlot.sortKey);
             if (newSlotUnusedIdx !== -1) unusedSlots[newSlotUnusedIdx] = slotBySortKey.get(oldKey);
-            if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g})); }
+            if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g, sortKey: slotKey(g)})); }
           } else {
             g.time = savedTime;
           }
@@ -2008,6 +1961,7 @@ function consolidateFields(schedule, numTeams, slots) {
     }
   }
 
+  for (const g of current) g.sortKey = slotKey(g);
   return current;
 }
 
@@ -2050,7 +2004,6 @@ function slideCleanup(schedule, numTeams, slots) {
       const N = gameIndices.length;
       const M = fdSlots.length;
       if (N === M) continue; // already fills all slots, nothing to repack
-      console.log(`Repack check ${fdKey}: ${N} games, ${M} slots [${fdSlots.map(s=>s.time).join(', ')}], games at [${gameIndices.sort((a,b)=>timeSortKey(current[a].time)-timeSortKey(current[b].time)).map(gi=>current[gi].time).join(', ')}]`);
 
       // Sort game indices by current time so assignment preserves order
       gameIndices.sort((a, b) => timeSortKey(current[a].time) - timeSortKey(current[b].time));
@@ -2076,24 +2029,8 @@ function slideCleanup(schedule, numTeams, slots) {
     if (!improved) break;
   }
 
+  for (const g of current) g.sortKey = slotKey(g);
   return current;
 }
 
 // ─── Module 5: Format CSV ────────────────────────────────────────────────────
-function formatCSV(schedule) {
-  const sorted = [...schedule].sort((a, b) => {
-    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-    const ta = timeSortKey(a.time), tb = timeSortKey(b.time);
-    if (ta !== tb) return ta - tb;
-    return a.field < b.field ? -1 : 1;
-  });
-
-  const lines = ['Day,Date,Time,Field,Away Team,Home Team'];
-  for (const g of sorted) {
-    const d = new Date(g.date + 'T00:00:00');
-    const day = DAYS[d.getDay()];
-    const dateDisplay = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-    lines.push(`${day},${dateDisplay},${formatTimeDisplay(g.time)},${g.field},${g.away + 1}B,${g.home + 1}B`);
-  }
-  return lines.join('\n');
-}

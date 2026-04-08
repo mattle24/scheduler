@@ -326,10 +326,7 @@ function generate() {
         const finalDetails = scoreDetails(finalSchedule, div.numTeams, divSlots);
 
         // Claim the slots used by this division
-        for (const g of finalSchedule) {
-          const key = g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field;
-          claimedKeys.add(key);
-        }
+        for (const g of finalSchedule) claimedKeys.add(g.sortKey);
 
         divisionResults.push({
           division: div,
@@ -358,9 +355,8 @@ function generate() {
             // Release this division's slots
             const releasedKeys = new Set();
             for (const g of dr.schedule) {
-              const key = g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field;
-              claimedKeys.delete(key);
-              releasedKeys.add(key);
+              claimedKeys.delete(g.sortKey);
+              releasedKeys.add(g.sortKey);
             }
 
             // Re-filter slots for this division (its fields, minus other divisions' claims and excluded days)
@@ -405,10 +401,7 @@ function generate() {
                 greedyDetails: result.details,
                 slots: divSlots
               };
-              for (const g of newSchedule) {
-                const key = g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field;
-                claimedKeys.add(key);
-              }
+              for (const g of newSchedule) claimedKeys.add(g.sortKey);
               currentGlobalScore = newGlobalScore;
               improved = true;
             } else {
@@ -517,6 +510,19 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
   const divNames = divisionResults.map(dr => dr.division.name);
   const divColors = ['#2d5a27', '#2563eb', '#9333ea', '#dc2626', '#ea580c', '#0891b2', '#4f46e5', '#be185d'];
 
+  // Precompute columns (date+time pairs that exist on any field) — shared across all field sections
+  const allDates = [...new Set(allSlots.map(s => s.date))].sort();
+  const allTimes = [...new Set(allSlots.map(s => s.time))].sort((a, b) => timeSortKey(a) - timeSortKey(b));
+  const existingDateTimes = new Set(allSlots.map(s => s.date + '|' + s.time));
+  const columns = [];
+  for (const date of allDates) {
+    for (const time of allTimes) {
+      if (existingDateTimes.has(date + '|' + time)) columns.push({ date, time, dateTime: date + '|' + time });
+    }
+  }
+  const colSpanByDate = new Map();
+  for (const col of columns) colSpanByDate.set(col.date, (colSpanByDate.get(col.date) || 0) + 1);
+
   for (const field of fieldNames) {
     const section = document.createElement('div');
     section.className = 'division-section';
@@ -524,23 +530,6 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
     const heading = document.createElement('h2');
     heading.textContent = field;
     section.appendChild(heading);
-
-    // Get all unique dates across ALL fields (for unavailable marking)
-    const allDates = [...new Set(allSlots.map(s => s.date))].sort();
-    const allTimes = [...new Set(allSlots.map(s => s.time))].sort((a, b) => timeSortKey(a) - timeSortKey(b));
-
-    // Build columns: each column is a date+time pair, but only include combos that exist on ANY field
-    // Group by date for header display
-    const columns = []; // [{date, time, dateTime}]
-    for (const date of allDates) {
-      for (const time of allTimes) {
-        // Include if any field has this slot (so we can show unavailable)
-        const anyFieldHas = allSlots.some(s => s.date === date && s.time === time);
-        if (anyFieldHas) {
-          columns.push({ date, time, dateTime: date + '|' + time });
-        }
-      }
-    }
 
     const available = fieldSlotKeys.get(field) || new Set();
     const gameMap = fieldGameDiv.get(field) || new Map();
@@ -561,8 +550,7 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
     let prevDate = '';
     for (const col of columns) {
       if (col.date !== prevDate) {
-        // Count how many columns share this date
-        const span = columns.filter(c => c.date === col.date).length;
+        const span = colSpanByDate.get(col.date);
         const d = new Date(col.date + 'T00:00:00');
         const dow = d.getDay();
         const isWeekend = dow === 0 || dow === 6;
