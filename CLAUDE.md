@@ -35,7 +35,7 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
 
 **Scarcity-aware claiming**: Before the sequential loop, a `slotScarcity` map is computed — for each slot, the number of *other* divisions that can also use it (based on field overlap and day-of-week exclusions). This is passed through `buildSchedule` → `tryBuildSchedule` and used as a soft penalty during slot selection, nudging divisions away from slots that are scarce for other divisions.
 
-**Iterative re-scheduling**: After the initial sequential pass (when >1 division), up to 3 rounds of re-optimization run. Each round releases one division's slots, re-schedules it with the freed pool (passing other divisions' games via `otherDivisionGames` for cross-division clustering), and accepts only if the global score (sum of per-division scores + cross-division clustering penalty) improves. Stops early if no division improves in a round.
+**Iterative re-scheduling**: After the initial sequential pass, up to 3 rounds of re-optimization run for all schedules (including single-division). Each round releases one division's slots, re-schedules it with the freed pool (passing other divisions' games via `otherDivisionGames` for cross-division clustering), and accepts only if the global score (sum of per-division scores + cross-division clustering penalty) improves. Stops early if no division improves in a round. For single-division runs this provides multiple independent greedy+anneal attempts, keeping the best.
 
 ### Single-Division Pipeline (js/builder.js)
 1. `buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options)` (entry point)
@@ -46,8 +46,8 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
 3. `selectMatchups()` — splits rounds into weekend (full rounds) and weekday (remainder)
    - OR `selectMatchupsWithLeagues()` — layered fill: intra-league pairs first, then inter-league, alternating layers
 4. `assignHomeAway()` — greedy + 2 repair passes (per-matchup balance, then overall ±1)
-5. `tryBuildSchedule()` — Phase 1: weekend rounds to weekend slots; Phase 1.5: overflow weekday games into unused weekend slots (back-to-back Sat/Sun allowed, same-day blocked); Phase 2: weekday MRV greedy (most-constrained-game-first with LCV slot scoring). 200 random attempts, keeps best.
-6. `annealSchedule()` — post-greedy simulated annealing: 4 move types, 3000 iterations (see below).
+5. `tryBuildSchedule()` — Phase 1: weekend rounds to weekend slots; Phase 1.5: overflow weekday games into unused weekend slots only when no eligible weekday slot exists (back-to-back Sat/Sun allowed, same-day blocked); Phase 2: weekday MRV greedy (most-constrained-game-first with LCV slot scoring). 250 random attempts, keeps best.
+6. `annealSchedule()` — post-greedy simulated annealing: 4 move types, 2000 iterations (see below).
 7. `consolidateFields()` — moves 1-2 game groups from a sparse field to a same-date field with ≥ as many games, if all games can be packed consecutively and score improves.
 8. `slideCleanup()` — for each weekend (field, date) with multiple games, tries all windows of N consecutive available slots and applies the best packing. Repeats until no improvement or 100 passes.
 9. `rebalanceHomeAway()` — final greedy home/away rebalancing pass after all field optimization; greedy flip pass plus a 2-hop chain pass through intermediate teams.
@@ -103,7 +103,7 @@ Show hard constraints in the UI in the penalty weights section.
 - Priority = row order in the table; first division gets first pick of slots
 - Each division is scored/optimized independently
 - Results render per-field: each field gets a heatmap section (rows = divisions, columns = date+time, colored by usage/free/unavailable)
-- Results render per-division: each gets its own score cards, team summary, weekend time slot distribution table, schedule table, heatmap
+- Results render per-division: each gets its own score cards, team summary (with per-team weekend time-slot bucket columns), schedule table, heatmap
 - CSV export includes a "Division" column
 
 ## AL/NL League Split (optional, per-division)
@@ -163,7 +163,7 @@ For **AL/NL league splits** (js/matchups.js), matchup generation uses a layered 
 `tryBuildSchedule` runs 200 attempts with randomized round-to-weekend mappings and shuffled weekday game order. Each attempt:
 
 - **Phase 1 (weekends)**: For each weekend group, assigns shuffled round games to eligible slots. Slot selection scores by: `-dateGameCount` (spread across Sat/Sun), `-teamFieldCount * 0.3` (field balance), `clusteringScore` (prefer fields with own-division games, avoid other-division fields), plus random jitter.
-- **Phase 1.5 (weekend overflow)**: Attempts to place weekday-pool games into unused weekend slots. Back-to-back weekend games (Sat+Sun) are allowed. Also uses clustering scoring. Creates slack for Phase 2 when weekday capacity is tight.
+- **Phase 1.5 (weekend overflow)**: Attempts to place weekday-pool games into unused weekend slots, but ONLY if the game has no eligible weekday slots (genuine scarcity). Back-to-back weekend games (Sat+Sun) are allowed. Also uses clustering scoring. Prevents unnecessary back-to-backs when weekday capacity is available.
 - **Phase 2 (weekdays)**: Uses MRV (minimum remaining values) ordering — dynamically picks the unplaced game with fewest eligible slots first, preventing constrained games from being stranded. Slot selection scores by: `min distance to nearest existing game` (fill gaps), `-weekCount * 5` (avoid clustering in one week), `-teamFieldCount * 2` (field balance), `clusteringScore` (cross-division awareness), LCV penalty (penalizes slots in weeks that constrain remaining games), plus jitter.
 
 All three phases track `divFieldDate` (this division's games per field+date) and use `otherDivFieldDate` (other divisions' games) for clustering. The `clusteringScore` function rewards fields where this division already has games (+2) and penalizes fields where other divisions have games (-1.5).
@@ -192,7 +192,7 @@ Hard constraints are checked inline via `hasThreeInFourDays` and `hasWeekdayGame
 
 ### Post-Greedy Simulated Annealing
 
-`annealSchedule` runs 3000 iterations after the greedy builder. Four move types:
+`annealSchedule` runs 2000 iterations after the greedy builder. Four move types:
 - **Same-date slot swap (40%):** Swap time+field between two games on the same date. Always valid since no date-based constraints change.
 - **Cross-date slot swap (15%):** Swap full slot (date, dayOfWeek, time, field) between two games. Validated against hard constraints (3-in-4-days, weekday-per-week, no same-day).
 - **Relocate to unused slot (25%):** Move a game to any unused slot from the available pool. Validated against hard constraints.

@@ -231,6 +231,15 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
       fieldCounts.set(g.field, (fieldCounts.get(g.field) || 0) + 1);
     }
 
+    const bucketNames = ['WKND_EARLY', 'WKND_MID', 'WKND_LATE'];
+    const bucketCounts = new Map();
+    for (const b of bucketNames) bucketCounts.set(b, 0);
+    for (const g of games) {
+      if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
+      const b = slotBucket(g.dayOfWeek, g.time);
+      if (bucketCounts.has(b)) bucketCounts.set(b, bucketCounts.get(b) + 1);
+    }
+
     teamData.push({
       team: `${t + 1}B`,
       league: leagueSplit ? (isAL(t) ? 'AL' : 'NL') : null,
@@ -242,8 +251,22 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
       btb,
       intraLeague,
       interLeague,
-      fieldCounts
+      fieldCounts,
+      bucketCounts
     });
+  }
+
+  const bucketNames = ['WKND_EARLY', 'WKND_MID', 'WKND_LATE'];
+  const bucketLabels = { WKND_EARLY: 'Early (<10:30a)', WKND_MID: 'Mid (10:30a–3p)', WKND_LATE: 'Late (≥3p)' };
+  const activeBuckets = teamData.length > 0
+    ? bucketNames.filter(b => teamData.some(r => r.bucketCounts.get(b) > 0))
+    : [];
+  const bucketStats = new Map();
+  for (const b of activeBuckets) {
+    const vals = teamData.map(r => r.bucketCounts.get(b));
+    const mean = vals.reduce((a, v) => a + v, 0) / vals.length;
+    const variance = vals.reduce((a, v) => a + (v - mean) ** 2, 0) / vals.length;
+    bucketStats.set(b, { mean, stdDev: Math.sqrt(variance) });
   }
 
   // Sort by league (AL first) then team number
@@ -261,6 +284,7 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
   html += '<th>Team</th><th>Games</th><th>Home</th><th>Away</th><th>H/A Diff</th><th>Avg Gap</th><th>Back-to-Back</th>';
   if (leagueSplit) html += '<th>Intra</th><th>Inter</th>';
   for (const f of allFields) html += `<th>${f}</th>`;
+  for (const b of activeBuckets) html += `<th>${bucketLabels[b] || b}</th>`;
   html += '</tr></thead><tbody>';
   for (const r of teamData) {
     html += '<tr>';
@@ -268,6 +292,18 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
     html += `<td>${r.team}</td><td>${r.games}</td><td>${r.home}</td><td>${r.away}</td><td>${r.haDiff >= 0 ? '+' : ''}${r.haDiff}</td><td>${r.avgGap}</td><td>${r.btb}</td>`;
     if (leagueSplit) html += `<td>${r.intraLeague}</td><td>${r.interLeague}</td>`;
     for (const f of allFields) html += `<td>${r.fieldCounts.get(f) || 0}</td>`;
+    for (const b of activeBuckets) {
+      const val = r.bucketCounts.get(b);
+      const s = bucketStats.get(b);
+      let cls = '';
+      if (s && s.stdDev > 0) {
+        const zscore = Math.abs(val - s.mean) / s.stdDev;
+        if (zscore > 1.5) cls = ' class="bad"';
+        else if (zscore > 0.8) cls = ' class="ok"';
+        else cls = ' class="good"';
+      }
+      html += `<td${cls}>${val}</td>`;
+    }
     html += '</tr>';
   }
   html += '</tbody></table>';
@@ -276,69 +312,6 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
   summaryCard.className = 'card';
   summaryCard.innerHTML = '<h2>Per-Team Summary</h2>' + html;
   container.appendChild(summaryCard);
-
-  // Time Slot Distribution table
-  {
-    const bucketNames = ['WKND_EARLY', 'WKND_MID', 'WKND_LATE'];
-    const bucketLabels = { WKND_EARLY: 'Early (<10:30a)', WKND_MID: 'Mid (10:30a–3p)', WKND_LATE: 'Late (≥3p)' };
-
-    // Compute per-team bucket counts (reuse teamData ordering from above)
-    const teamBuckets = [];
-    for (const r of teamData) {
-      const t = parseInt(r.team) - 1;
-      const counts = new Map();
-      for (const b of bucketNames) counts.set(b, 0);
-      for (const g of schedule.filter(g => g.home === t || g.away === t)) {
-        if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
-        const b = slotBucket(g.dayOfWeek, g.time);
-        if (counts.has(b)) counts.set(b, counts.get(b) + 1);
-      }
-      teamBuckets.push({ team: r.team, league: r.league, counts });
-    }
-
-    const hasWeekendGames = teamBuckets.some(tb => [...tb.counts.values()].some(v => v > 0));
-    if (hasWeekendGames) {
-      const activeBuckets = bucketNames.filter(b => teamBuckets.some(tb => tb.counts.get(b) > 0));
-      const stats = new Map();
-      for (const b of activeBuckets) {
-        const vals = teamBuckets.map(tb => tb.counts.get(b));
-        const mean = vals.reduce((a, v) => a + v, 0) / vals.length;
-        const variance = vals.reduce((a, v) => a + (v - mean) ** 2, 0) / vals.length;
-        stats.set(b, { mean, stdDev: Math.sqrt(variance) });
-      }
-
-      let thtml = '<table><thead><tr>';
-      if (leagueSplit) thtml += '<th>League</th>';
-      thtml += '<th>Team</th>';
-      for (const b of activeBuckets) thtml += `<th>${bucketLabels[b] || b}</th>`;
-      thtml += '</tr></thead><tbody>';
-
-      for (const tb of teamBuckets) {
-        thtml += '<tr>';
-        if (leagueSplit) thtml += `<td>${tb.league}</td>`;
-        thtml += `<td>${tb.team}</td>`;
-        for (const b of activeBuckets) {
-          const val = tb.counts.get(b);
-          const s = stats.get(b);
-          let cls = '';
-          if (s && s.stdDev > 0) {
-            const zscore = Math.abs(val - s.mean) / s.stdDev;
-            if (zscore > 1.5) cls = ' class="bad"';
-            else if (zscore > 0.8) cls = ' class="ok"';
-            else cls = ' class="good"';
-          }
-          thtml += `<td${cls}>${val}</td>`;
-        }
-        thtml += '</tr>';
-      }
-      thtml += '</tbody></table>';
-
-      const timeCard = document.createElement('div');
-      timeCard.className = 'card';
-      timeCard.innerHTML = '<h2>Weekend Time Slot Distribution</h2>' + thtml;
-      container.appendChild(timeCard);
-    }
-  }
 
   // Schedule table
   const sorted = [...schedule].sort((a, b) => {

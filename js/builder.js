@@ -275,13 +275,39 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
 
     if (failed) return;
 
-    // Phase 1.5: Weekend overflow — place weekday games into unused weekend slots
-    // This reduces pressure on Phase 2 when weekday capacity is near the theoretical max.
+    // Phase 1.5: Weekend overflow — place weekday games into unused weekend slots,
+    // but only when weekday capacity is genuinely tight.
+    // If there are enough untaken weekday slots for all weekday games, skip overflow
+    // entirely to avoid creating unnecessary back-to-backs.
+    const availableWeekdayCount = weekdaySlots.reduce((n, s) => n + (taken.has(s.sortKey) ? 0 : 1), 0);
     const remainingWeekdayGames = [];
     for (const pair of shuffledWeekdayGames) {
       const tA = pair[0], tB = pair[1];
 
-      // Check all unused weekend slots eligible for this game (using raw teams, not H/A)
+      // If weekday capacity is ample, defer everything to Phase 2.
+      if (availableWeekdayCount >= shuffledWeekdayGames.length) {
+        remainingWeekdayGames.push(pair);
+        continue;
+      }
+
+      // Weekday capacity is tight — check if this specific game has any eligible weekday slot.
+      let hasEligibleWeekday = false;
+      for (const s of weekdaySlots) {
+        if (taken.has(s.sortKey)) continue;
+        if (teamDay.get(tA).has(s.date) || teamDay.get(tB).has(s.date)) continue;
+        const slotDayNum = dateToDay.get(s.date);
+        if (hasThreeInFourDays(teamDaySorted.get(tA), slotDayNum) || hasThreeInFourDays(teamDaySorted.get(tB), slotDayNum)) continue;
+        const wdwk = dateToWeekdayWeek.get(s.date);
+        if (wdwk && ((teamWeekdayWeek.get(tA).get(wdwk) || 0) >= 1 || (teamWeekdayWeek.get(tB).get(wdwk) || 0) >= 1)) continue;
+        hasEligibleWeekday = true;
+        break;
+      }
+      if (hasEligibleWeekday) {
+        remainingWeekdayGames.push(pair);
+        continue;
+      }
+
+      // No weekday options — try weekend overflow.
       let overflowBest = null;
       let overflowBestScore = -Infinity;
       for (const [, groupSlots] of weekendSlotsByGroup) {

@@ -3,7 +3,7 @@ import { scoreCandidate } from './scoring.js';
 
 // ─── Module 4b: Simulated Annealing ─────────────────────────────────────────
 function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onProgress) {
-  if (!maxIterations) maxIterations = 3000;
+  if (!maxIterations) maxIterations = 2000;
   const current = schedule.map(g => ({...g}));
   let currentScore = scoreCandidate(current, numTeams, slots, weights);
   const initialScore = currentScore;
