@@ -8,14 +8,24 @@ Whenever you make a change, check whether you need to update CLAUDE.md (this fil
 Also check the methodology explainer in index.html to see if the user-facing docs should change.
 
 ## Files
-- **scheduler.js** (~1700 lines) — Core engine: TSV parsing, round-robin tournament generation, matchup selection (standard + AL/NL league-aware), home/away assignment, greedy schedule builder, scoring/penalty system, simulated annealing, cross-division scoring
-- **ui.js** (~550 lines) — Division management UI, multi-division generate loop, per-division rendering (score cards, team summary, time slot distribution, schedule table, heatmap), per-field heatmaps, CSV export, penalty weight sync
-- **index.html** — Minimal shell with division table, TSV input, penalty weights, and dynamic results container. Loads: styles.css, scheduler.js, ui.js
+- **js/constants.js** — WEIGHTS, WEIGHT_LABELS, WEIGHT_DESCRIPTIONS, DAYS, NUM_ATTEMPTS, and bucket threshold/importance constants
+- **js/utils.js** — Date/time helpers (parseDate, dateStr, daysBetween, getWeekendGroup, isoWeek), time slot helpers (normalizeTime, slotBucket, timeSortKey, formatTimeDisplay, slotKey, addDays), shuffle, hasThreeInFourDays, teamHasThreeInFourDays
+- **js/parser.js** — parseTSV: parses the field-availability TSV into slot objects
+- **js/matchups.js** — Round-robin matchup generation (generateTournamentRounds, selectMatchups, selectMatchupsWithLeagues), AL/NL league validation, fillWeekendByes, assignHomeAway, rebalanceHomeAway
+- **js/scoring.js** — scoreCandidate, scoreDetails (all 11 penalty metrics), scoreCrossfieldDivisionClustering, scoreWeekendOtherDivField
+- **js/optimizer.js** — Post-greedy optimization: annealSchedule (simulated annealing), consolidateFields, slideCleanup
+- **js/builder.js** — Core scheduling pipeline: tryBuildSchedule (greedy builder, 200 attempts), buildSchedule (entry point: matchup gen → greedy → anneal → consolidate → slide → rebalance)
+- **js/state.js** — saveState, loadState, debouncedSave (localStorage persistence)
+- **js/divisions.js** — Division table UI (addDivisionRow, removeDivisionRow, populateFieldCheckboxes, updateFieldChoices), penalty weight UI (buildPenaltyGrid, syncWeights, resetWeights, togglePenalties), readDivisions, readDivWeightOverrides, clearCachedFields
+- **js/render.js** — renderMultiDivisionResults, renderFieldSections, renderDivisionBlock, renderHeatmapInto, formatMultiDivisionCSV, downloadCSV, showError, clearError, setLastCSV
+- **js/generate.js** — generate() (multi-division scheduling loop, scarcity-aware, iterative re-optimization), globalScore, weightedScore
+- **js/ui.js** — Entry point: restoreState, clearInputs, loadSample, handleFileUpload, DOMContentLoaded init, window.* assignments for onclick handlers
+- **index.html** — Minimal shell with division table, TSV input, penalty weights, and dynamic results container. Loads: styles.css, js/ui.js (ES module entry point)
 - **styles.css** — All styling including CSS-only tooltips and heatmap
 
 ## Architecture / Pipeline
 
-### Multi-Division Loop (ui.js `generate()`)
+### Multi-Division Loop (js/generate.js `generate()`)
 Divisions are scheduled sequentially in row order (priority order). For each division:
 1. Filter `allSlots` to the division's valid fields, excluding slots already claimed by higher-priority divisions and slots on excluded days of the week
 2. Run the single-division pipeline (below) with filtered slots
@@ -27,7 +37,7 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
 
 **Iterative re-scheduling**: After the initial sequential pass (when >1 division), up to 3 rounds of re-optimization run. Each round releases one division's slots, re-schedules it with the freed pool (passing other divisions' games via `otherDivisionGames` for cross-division clustering), and accepts only if the global score (sum of per-division scores + cross-division clustering penalty) improves. Stops early if no division improves in a round.
 
-### Single-Division Pipeline (scheduler.js)
+### Single-Division Pipeline (js/builder.js)
 1. `buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options)` (entry point)
    - `options.leagueSplit` — when true, uses AL/NL league-aware matchup selection
    - `options.slotScarcity` — Map of sortKey → scarcity count, used to penalize shared slots
@@ -67,11 +77,11 @@ Weighted sum of penalties. Current weights in `WEIGHTS` global:
 - fieldDivisionClustering (20) — cross-division penalty for switching between divisions on the same field in a day; A-B-A patterns penalized 4x more than A-B switches. Computed across all divisions together via `scoreCrossfieldDivisionClustering()`, NOT per-division in scoreDetails.
 - weekendOtherDivField (4) — weekend game on a field+date that another division also uses; computed cross-division via `scoreWeekendOtherDivField()`, NOT per-division in scoreDetails.
 
-**Cross-division scoring pattern**: `fieldDivisionClustering` and `weekendOtherDivField` are both computed by standalone functions, then added to the global score in ui.js's three `globalScoreBefore`/`newGlobalScore` expressions. Neither appears in `scoreDetails` or `scoreCandidate`. Add new cross-division penalties the same way.
+**Cross-division scoring pattern**: `fieldDivisionClustering` and `weekendOtherDivField` are both computed by standalone functions, then added to the global score in js/generate.js's three `globalScoreBefore`/`newGlobalScore` expressions. Neither appears in `scoreDetails` or `scoreCandidate`. Add new cross-division penalties the same way.
 
 **`clusteringScore` coupling**: The `clusteringScore` heuristic inside `tryBuildSchedule` guides greedy slot selection toward the same incentives as the formal penalties. Its magnitudes mirror `WEIGHTS.loneWeekendGame` (+1 reward for joining own games) and `WEIGHTS.weekendOtherDivField` (-4 for sharing with another division). Keep them in sync when adjusting weights.
 
-`scoreCandidate` and `weightedScore` (ui.js) both use a dynamic loop over WEIGHTS keys.
+`scoreCandidate` and `weightedScore` (js/generate.js) both use a dynamic loop over WEIGHTS keys.
 
 Users can adjust all weights via collapsible "Penalty Weights" panel in Settings.
 
@@ -104,7 +114,7 @@ When a division's "AL/NL" checkbox is enabled:
 - Hard constraint: gamesPerTeam must be >= max(alSize, nlSize) - 1
 
 ## Weight Sync
-`resetWeights()` in ui.js reads directly from the `WEIGHTS` object defined in scheduler.js (no separate `DEFAULT_WEIGHTS` copy). Keep weights only in scheduler.js.
+`resetWeights()` in js/divisions.js reads directly from the `WEIGHTS` object defined in js/constants.js (no separate `DEFAULT_WEIGHTS` copy). Keep weights only in js/constants.js.
 
 ## Known Issues
 - None
@@ -137,11 +147,11 @@ When a division's "AL/NL" checkbox is enabled:
 
 ### Matchup Generation
 
-The core uses the **circle method** for round-robin tournaments (scheduler.js:204-237): fix team 0, rotate teams 1..n-1. For odd team counts, a dummy team is added and its pairings become byes. This produces `n-1` rounds of `floor(n/2)` games each — a perfect 1-factorization of K_n.
+The core uses the **circle method** for round-robin tournaments (js/matchups.js): fix team 0, rotate teams 1..n-1. For odd team counts, a dummy team is added and its pairings become byes. This produces `n-1` rounds of `floor(n/2)` games each — a perfect 1-factorization of K_n.
 
 Rounds are cycled to reach `totalGames = numTeams * gamesPerTeam / 2`. The first `numWeekends` rounds become weekend rounds (preserving their structure as perfect matchings so no team double-books on a weekend). Remaining games are flattened into a weekday pool.
 
-For **AL/NL league splits** (scheduler.js:245-379), matchup generation uses a layered fill: intra-league rounds (circle algorithm on each sub-league, merged since they're disjoint) alternate with inter-league rounds (bipartite round-robin: `AL[i] vs NL[(i+r) % nlSize]`). Excess games are trimmed by greedily removing pairs where both teams have the highest game counts. The result is re-grouped into valid matchings via greedy set-packing.
+For **AL/NL league splits** (js/matchups.js), matchup generation uses a layered fill: intra-league rounds (circle algorithm on each sub-league, merged since they're disjoint) alternate with inter-league rounds (bipartite round-robin: `AL[i] vs NL[(i+r) % nlSize]`). Excess games are trimmed by greedily removing pairs where both teams have the highest game counts. The result is re-grouped into valid matchings via greedy set-packing.
 
 ### Home/Away Assignment
 
