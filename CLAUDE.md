@@ -73,6 +73,7 @@ Weighted sum of penalties. Current weights in `WEIGHTS` global:
 - earlySeasonDensity (4) — pairs of games within 2 days in first 7 days of season
 - weekendBTBTimePenalty (3) — 2nd day of Fri/Sat or Sat/Sun b2b has earlier timeslot than 1st day
 - satSunBalance (4) — variance of proportion Saturday among weekend games per team
+- btbBalance (3) — exponential penalty on (max − min) back-to-back game counts across teams: `exp(spread) − 1`; spread of 0 = no penalty, grows rapidly with imbalance
 - loneWeekendGame (1) — game is the only game for this division on that field+date (weekend only); computed per-division in `scoreDetails`
 - fieldDivisionClustering (20) — cross-division penalty for switching between divisions on the same field in a day; A-B-A patterns penalized 4x more than A-B switches. Computed across all divisions together via `scoreCrossfieldDivisionClustering()`, NOT per-division in scoreDetails.
 - weekendOtherDivField (4) — weekend game on a field+date that another division also uses; computed cross-division via `scoreWeekendOtherDivField()`, NOT per-division in scoreDetails.
@@ -186,6 +187,7 @@ Hard constraints are checked inline via `hasThreeInFourDays` and `hasWeekdayGame
 | `earlySeasonDensity` | Pairs of games within 2 days in first 7 days |
 | `weekendBTBTimePenalty` | 2nd day of weekend b2b has earlier timeslot |
 | `satSunBalance` | Variance of proportion Saturday per team |
+| `btbBalance` | Exponential penalty on (max − min) back-to-back game counts: `exp(spread) − 1` |
 | `fieldDivisionClustering` | Cross-division: switches between divisions on same field/day (A-B-A penalized 4x) |
 
 ### Post-Greedy Simulated Annealing

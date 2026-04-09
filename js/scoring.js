@@ -259,7 +259,7 @@ function scoreDetails(schedule, numTeams, allSlots) {
     }
   }
 
-  // Back-to-back balance: variance of per-team back-to-back (consecutive day) counts
+  // Back-to-back balance: exponentially increasing penalty on (max - min) btb count across teams
   let btbBalance = 0;
   {
     const btbCounts = [];
@@ -271,8 +271,8 @@ function scoreDetails(schedule, numTeams, allSlots) {
       }
       btbCounts.push(btb);
     }
-    const mean = btbCounts.reduce((a, b) => a + b, 0) / btbCounts.length;
-    btbBalance = btbCounts.reduce((a, v) => a + (v - mean) ** 2, 0) / btbCounts.length;
+    const spread = Math.max(...btbCounts) - Math.min(...btbCounts);
+    btbBalance = spread === 0 ? 0 : Math.exp(spread) - 1;
   }
 
   return {

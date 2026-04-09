@@ -5,7 +5,7 @@ const WKND_BUCKET_IMPORTANCE = { WKND_EARLY: 1.5, WKND_MID: 0.5, WKND_LATE: 1.5 
 
 // WEIGHTS, WEIGHT_LABELS, and WEIGHT_DESCRIPTIONS alphabetical by convention
 const WEIGHTS = {
-  btbBalance: 12,
+  btbBalance: 3,
   earlySeasonDensity: 4,
   fieldBalance: 2,
   fieldContinuity: 10,
@@ -24,7 +24,7 @@ const WEIGHTS = {
 };
 
 const WEIGHT_LABELS = {
-  btbBalance: 'Back-to-Back Balance (equal back-to-back games per team)',
+  btbBalance: 'Back-to-Back Balance (even back-to-back games across teams)',
   earlySeasonDensity: 'Early Season Density (games within 2 days in first 7 days)',
   fieldBalance: 'Field Balance (teams play even games at each field)',
   fieldContinuity: 'Field Continuity (same-division games back-to-back on a field)',
@@ -43,7 +43,7 @@ const WEIGHT_LABELS = {
 };
 
 const WEIGHT_DESCRIPTIONS = {
-  btbBalance: 'Penalizes uneven distribution of back-to-back games (consecutive days) across teams. Higher = teams have similar numbers of back-to-back days.',
+  btbBalance: 'Penalizes uneven back-to-back (consecutive day) games across teams using an exponential penalty on the spread between the team with the most and fewest back-to-backs. A spread of 0 = no penalty; each additional game of spread grows the penalty exponentially.',
   fieldDivisionClustering: 'Penalizes switching between divisions on the same field in a day. A-B-A patterns (switching back and forth) are penalized much more heavily than A-A-B (single switch).',
   earlySeasonDensity: 'Penalizes games scheduled within 2 days of each other during the first 7 days of the season.',
   fieldBalance: 'Penalizes uneven distribution of field assignments per team. Higher = teams play at each field more equally.',

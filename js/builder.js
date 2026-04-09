@@ -168,10 +168,14 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
     }
 
     // Add b2b penalty to runningPenalty for a team after a b2b was created.
+    // Approximates marginal cost of the exponential (max-min) formula: exp(spread)-1.
     function addBtbPenalty(team) {
-      const currentMean = teamBtbCount.reduce((a, b) => a + b, 0) / numTeams;
-      if (teamBtbCount[team] > currentMean) {
-        runningPenalty += (weights || WEIGHTS).btbBalance * (teamBtbCount[team] - currentMean);
+      const minBtb = Math.min(...teamBtbCount);
+      const maxBtb = Math.max(...teamBtbCount);
+      const spread = maxBtb - minBtb;
+      if (spread > 0) {
+        // Marginal cost = derivative of exp(spread)-1 = exp(spread)
+        runningPenalty += (weights || WEIGHTS).btbBalance * Math.exp(spread);
       }
     }
 
