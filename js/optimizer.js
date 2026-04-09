@@ -2,7 +2,7 @@ import { slotKey, timeSortKey, isoWeek, teamHasThreeInFourDays } from './utils.j
 import { scoreCandidate } from './scoring.js';
 
 // ─── Module 4b: Simulated Annealing ─────────────────────────────────────────
-function annealSchedule(schedule, numTeams, slots, maxIterations, weights) {
+function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onProgress) {
   if (!maxIterations) maxIterations = 3000;
   const current = schedule.map(g => ({...g}));
   let currentScore = scoreCandidate(current, numTeams, slots, weights);
@@ -252,6 +252,7 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights) {
 
         T *= alpha;
       }
+      if (onProgress) onProgress(iter / maxIterations, bestScore);
       if (iter < maxIterations) {
         setTimeout(step, 0);
       } else {

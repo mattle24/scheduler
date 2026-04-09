@@ -542,9 +542,11 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
 
   const haGames = assignHomeAway(allPairs, numTeams);
   const games = haGames.map(g => ({ home: g.home, away: g.away }));
-  return tryBuildSchedule(games, slots, numTeams, onProgress, { weekendRounds, weekdayGames, slotScarcity, otherDivisionGames }, W).then(result => {
+  const greedyProgress = onProgress ? (pct, score) => onProgress(pct * 0.7, score) : null;
+  const annealProgress = onProgress ? (pct, score) => onProgress(0.7 + pct * 0.3, score) : null;
+  return tryBuildSchedule(games, slots, numTeams, greedyProgress, { weekendRounds, weekdayGames, slotScarcity, otherDivisionGames }, W).then(result => {
     const preAnnealScore = scoreCandidate(result.schedule, numTeams, slots, W);
-    return annealSchedule(result.schedule, numTeams, slots, undefined, W).then(saResult => {
+    return annealSchedule(result.schedule, numTeams, slots, undefined, W, annealProgress).then(saResult => {
       console.log(`Anneal: ${preAnnealScore.toFixed(2)} → ${saResult.score.toFixed(2)} (${saResult.improved ? 'improved' : 'no improvement'})`);
       if (saResult.improved) {
         result.schedule = saResult.schedule;

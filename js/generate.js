@@ -83,7 +83,9 @@ function generate() {
       // Strategy 1: Iterative re-scheduling — release each division's slots and
       // re-schedule it with knowledge of what other divisions actually claimed.
       // Accept the new schedule only if the global score improves.
-      if (divs.length > 1) {
+      // For single divisions this still helps: each round is an independent
+      // greedy+anneal attempt with fresh randomness; best result is kept.
+      {
         const MAX_ROUNDS = 3;
         for (let round = 0; round < MAX_ROUNDS; round++) {
           let improved = false;
