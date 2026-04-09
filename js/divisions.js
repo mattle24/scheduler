@@ -7,7 +7,7 @@ function clearCachedFields() { cachedFieldNames = []; }
 function togglePenalties() {
   const body = document.getElementById('penaltyWeights');
   const header = document.querySelector('.penalty-header');
-  body.classList.toggle('hidden');
+  body.classList.toggle('open');
   header.classList.toggle('open');
 }
 

@@ -11,7 +11,7 @@
 
 <h1>Scheduler</h1>
 
-<div class="card">
+<div class="card" id="settingsCard">
   <h2>Settings</h2>
   <div style="margin-bottom: 1rem;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem;">
@@ -46,7 +46,7 @@
     <div class="penalty-header" onclick="togglePenalties()">
       <span>&#9654;</span> Penalty Weights
     </div>
-    <div id="penaltyWeights" class="penalty-body hidden">
+    <div id="penaltyWeights" class="penalty-body collapsible">
       <p class="penalty-hint">Controls how much the optimizer cares about each rule. Higher = stronger priority. Set to 0 to ignore a rule.</p>
       <div class="penalty-grid" id="penaltyGrid"></div>
       <button class="btn-secondary btn-sm" onclick="resetWeights()">Reset to Defaults</button>
@@ -65,10 +65,10 @@
     <button class="btn-primary" onclick="generate()">Generate Schedule</button>
   </div>
   <div class="explainer-section">
-    <div class="penalty-header" onclick="this.classList.toggle('open'); document.getElementById('explainerBody').classList.toggle('hidden')">
+    <div class="penalty-header" onclick="this.classList.toggle('open'); document.getElementById('explainerBody').classList.toggle('open')">
       <span>&#9654;</span> &#9432; How does the scheduler work?
     </div>
-    <div id="explainerBody" class="penalty-body hidden">
+    <div id="explainerBody" class="penalty-body collapsible">
       <div class="explainer-content">
         <p><strong>1. Build the matchups.</strong> First, the scheduler figures out who plays whom. It generates a balanced set of matchups so every team plays the right number of games and faces a good mix of opponents. If a division uses the AL/NL league split, it makes sure teams play everyone in their own league before scheduling cross-league games.</p>
         <p><strong>2. Assign home and away.</strong> Each matchup gets a home and away team, balanced so no team is stuck at home (or away) too often — both overall and against each individual opponent.</p>
