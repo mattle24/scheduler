@@ -80,8 +80,10 @@ table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 th, td { padding: .4rem .6rem; text-align: left; border-bottom: 1px solid var(--border); }
 th { background: #f3f4f6; font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
 .team-summary-scroll { overflow-x: auto; }
-.team-summary-table { min-width: 800px; font-variant-numeric: tabular-nums; }
-.team-summary-table th, .team-summary-table td { text-align: center; white-space: nowrap; }
+.team-summary-table { font-variant-numeric: tabular-nums; }
+.team-summary-table th, .team-summary-table td { padding: .4rem .4rem; text-align: center; }
+.team-summary-table th { white-space: normal; }
+.team-summary-table td { white-space: nowrap; }
 .team-summary-table th:first-child, .team-summary-table td:first-child { text-align: left; }
 .team-summary-table tbody td:first-child { font-weight: 600; }
 .team-summary-table thead tr:first-child th { border-bottom: 1px solid var(--border); }
@@ -103,6 +105,9 @@ th { background: #f3f4f6; font-weight: 600; font-size: .8rem; text-transform: up
 .heatmap-cell { width: 18px; height: 18px; border: 1px solid #e5e7eb; }
 .heatmap-cell.active { background: rgb(45, 90, 39); border-color: #000; }
 .heatmap-cell.inactive { background: #fff; }
+.team-heatmap { width: auto; }
+.team-heatmap th.date-header { writing-mode: horizontal-tb; transform: none; white-space: nowrap; padding: 4px 8px; }
+.team-heatmap td.team-name { padding-right: 12px; }
 
 /* Field heatmap */
 .field-heatmap th.field-date-header { writing-mode: horizontal-tb; transform: none; font-size: .7rem; }
@@ -359,7 +364,7 @@ h1 { letter-spacing: -.02em; }
 .field-game-button { display: block; width: 100%; min-width: 18px; min-height: 18px; padding: 0; background: transparent; border: 0; border-radius: 0; }
 .field-game-button:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
 .field-game-tooltip { position: fixed; z-index: 100; max-width: min(280px, calc(100vw - 16px)); padding: .5rem .65rem; border-radius: 4px; background: #1f2937; color: #fff; font-size: .8rem; box-shadow: 0 2px 8px rgba(0,0,0,.25); pointer-events: none; }
-.field-schedules-heading { font-size: 1.5rem; margin: 1.5rem 0 .75rem; }
+.field-schedules-heading { cursor: pointer; font-size: 1.5rem; font-weight: 700; margin: 1.5rem 0 .75rem; }
 .field-section > h3 { font-size: 1.15rem; margin-bottom: .75rem; padding-left: .6rem; border-left: 4px solid var(--primary); }
 
 .field-heatmap .field-occupied, .field-legend-occupied { background: #dfe2e5; }
@@ -375,4 +380,12 @@ h1 { letter-spacing: -.02em; }
 .field-date-picker input { border: 0; border-left: 1px solid var(--border); border-radius: 0; padding: .15rem 0 .15rem .75rem; font-size: .9rem; font-weight: 600; }
 .field-date-picker input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-.field-heatmap .field-used { background: #000; }
+.field-heatmap .field-used { background: rgb(45, 90, 39); }
+
+.schedule-details summary { cursor: pointer; font-weight: 600; }
+.schedule-details[open] summary { margin-bottom: .75rem; }
+.schedule-table-scroll { overflow-x: auto; }
+
+#division-schedules .actions { margin-bottom: 1rem; }
+.download-csv { display: inline-flex; align-items: center; gap: .35rem; }
+.download-csv .material-symbols-outlined { font-size: 1.1rem; }

@@ -16,20 +16,31 @@ function renderMultiDivisionResults(divisionResults, allSlots) {
     const toc = document.createElement('nav');
     toc.className = 'results-toc';
     const links = [];
-    if (fieldNames.length > 0) {
-      for (const f of fieldNames) links.push(`<a href="#field-${f.replace(/\s+/g, '-')}">${f}</a>`);
-    }
+    links.push('<a href="#division-schedules">Division Schedules</a>');
     for (let i = 0; i < divisionResults.length; i++) {
-      links.push(`<a href="#division-${i}">${divisionResults[i].division.name}</a>`);
+      links.push(`<a href="#division-${i}">${divisionResults[i].division.name} Deepdive</a>`);
+    }
+    if (fieldNames.length > 0) {
+      links.push('<a href="#fields">Fields</a>');
     }
     toc.innerHTML = '<span class="toc-label">Jump to:</span>' + links.join('');
     container.appendChild(toc);
   }
 
-  // Per-field sections with heatmaps
-  if (allSlots && allSlots.length > 0) {
-    renderFieldSections(container, divisionResults, allSlots, fieldNames);
+  const schedulesSection = document.createElement('section');
+  schedulesSection.id = 'division-schedules';
+  const schedulesHeading = document.createElement('h2');
+  schedulesHeading.textContent = 'Division Schedules';
+  schedulesSection.appendChild(schedulesHeading);
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  actions.innerHTML = '<button class="btn-secondary btn-sm download-csv" onclick="downloadCSV()"><span class="material-symbols-outlined" aria-hidden="true">download</span>Download CSV</button>';
+  schedulesSection.appendChild(actions);
+  for (const dr of divisionResults) {
+    renderScheduleTable(schedulesSection, dr.schedule, dr.division.name);
   }
+  container.appendChild(schedulesSection);
 
   for (let i = 0; i < divisionResults.length; i++) {
     const dr = divisionResults[i];
@@ -37,26 +48,28 @@ function renderMultiDivisionResults(divisionResults, allSlots) {
     section.className = 'division-section';
     section.id = `division-${i}`;
     const heading = document.createElement('h2');
-    heading.textContent = dr.division.name;
+    heading.textContent = `${dr.division.name} Deepdive`;
     section.appendChild(heading);
 
     renderDivisionBlock(section, dr.schedule, dr.details, dr.division.numTeams, dr.division.leagueSplit);
     container.appendChild(section);
   }
 
-  // Download button at the bottom
-  const actions = document.createElement('div');
-  actions.className = 'actions';
-  actions.innerHTML = '<button class="btn-secondary btn-sm" onclick="downloadCSV()">Download CSV</button>';
-  container.appendChild(actions);
+  // Per-field sections with heatmaps
+  if (allSlots && allSlots.length > 0) {
+    const fields = document.createElement('details');
+    fields.id = 'fields';
+    fields.open = true;
+    const heading = document.createElement('summary');
+    heading.className = 'field-schedules-heading';
+    heading.textContent = 'Fields';
+    fields.appendChild(heading);
+    renderFieldSections(fields, divisionResults, allSlots, fieldNames);
+    container.appendChild(fields);
+  }
 }
 
 function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
-  const fieldHeading = document.createElement('h2');
-  fieldHeading.className = 'field-schedules-heading';
-  fieldHeading.textContent = 'Field Schedules';
-  container.appendChild(fieldHeading);
-
   // Build the set of all (date, time) columns across all fields, sorted chronologically
   // and a lookup: field -> Set of "date|time" keys that are available
   const fieldSlotKeys = new Map(); // field -> Set of "date|time"
@@ -434,7 +447,15 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
   summaryCard.innerHTML = '<h2>Per-Team Summary</h2>' + html;
   container.appendChild(summaryCard);
 
-  // Schedule table
+  // Heatmap
+  const heatmapCard = document.createElement('div');
+  heatmapCard.className = 'card';
+  heatmapCard.innerHTML = '<h2>Team Schedule</h2><div></div>';
+  renderHeatmapInto(heatmapCard.querySelector('div'), schedule, numTeams);
+  container.appendChild(heatmapCard);
+}
+
+function renderScheduleTable(container, schedule, divisionName) {
   const sorted = [...schedule].sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1;
     const ta = timeSortKey(a.time), tb = timeSortKey(b.time);
@@ -451,33 +472,44 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
   }
   shtml += '</tbody></table>';
 
-  const schedCard = document.createElement('div');
-  schedCard.className = 'card';
-  schedCard.innerHTML = '<h2>Schedule</h2>' + shtml;
+  const schedCard = document.createElement('details');
+  schedCard.className = 'card schedule-details';
+  const summary = document.createElement('summary');
+  summary.textContent = divisionName;
+  schedCard.appendChild(summary);
+  const tableContainer = document.createElement('div');
+  tableContainer.className = 'schedule-table-scroll';
+  tableContainer.innerHTML = shtml;
+  schedCard.appendChild(tableContainer);
   container.appendChild(schedCard);
 
-  // Heatmap
-  const heatmapCard = document.createElement('div');
-  heatmapCard.className = 'card';
-  heatmapCard.innerHTML = '<h2>Team Schedule</h2><div style="overflow-x:auto;"></div>';
-  renderHeatmapInto(heatmapCard.querySelector('div'), schedule, numTeams);
-  container.appendChild(heatmapCard);
 }
 
 function renderHeatmapInto(container, schedule, numTeams) {
   const gameDates = schedule.map(g => g.date).sort();
-  const dates = [];
-  if (gameDates.length > 0) {
-    const cur = new Date(gameDates[0] + 'T00:00:00');
-    const end = new Date(gameDates[gameDates.length - 1] + 'T00:00:00');
-    while (cur <= end) {
-      const y = cur.getFullYear();
-      const m = String(cur.getMonth() + 1).padStart(2, '0');
-      const d = String(cur.getDate()).padStart(2, '0');
-      dates.push(`${y}-${m}-${d}`);
-      cur.setDate(cur.getDate() + 1);
-    }
+  if (!gameDates.length) {
+    container.textContent = 'No games scheduled.';
+    return;
   }
+  const firstWeek = isoWeek(gameDates[0]);
+  const lastWeek = isoWeek(gameDates[gameDates.length - 1]);
+  let selectedWeek = firstWeek;
+  const navigation = document.createElement('div');
+  navigation.className = 'field-week-navigation field-week-navigation-local';
+  navigation.setAttribute('aria-label', 'Team schedule week');
+  const previous = document.createElement('button');
+  previous.type = 'button';
+  previous.className = 'btn-secondary btn-sm';
+  previous.textContent = 'Previous week';
+  const label = document.createElement('strong');
+  const next = document.createElement('button');
+  next.type = 'button';
+  next.className = 'btn-secondary btn-sm';
+  next.textContent = 'Next week';
+  navigation.append(previous, label, next);
+  const grid = document.createElement('div');
+  grid.style.overflowX = 'auto';
+  container.append(navigation, grid);
 
   const teamDates = [];
   for (let t = 0; t < numTeams; t++) {
@@ -488,27 +520,40 @@ function renderHeatmapInto(container, schedule, numTeams) {
     teamDates.push(s);
   }
 
-  let html = '<table class="heatmap-table"><thead><tr><th></th>';
-  for (const date of dates) {
-    const d = new Date(date + 'T00:00:00');
-    const dow = d.getDay();
-    const isWeekend = dow === 0 || dow === 6;
-    const label = `${d.getMonth() + 1}/${d.getDate()}`;
-    html += `<th class="date-header${isWeekend ? ' weekend' : ''}">${label}</th>`;
-  }
-  html += '</tr></thead><tbody>';
-
-  for (let t = 0; t < numTeams; t++) {
-    html += `<tr><td class="team-name">${t + 1}B</td>`;
+  function renderWeek() {
+    const end = addDays(selectedWeek, 6);
+    const formatDate = date => new Date(date + 'T00:00:00').toLocaleDateString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric'
+    });
+    label.textContent = `${formatDate(selectedWeek)} – ${formatDate(end)}`;
+    previous.disabled = selectedWeek === firstWeek;
+    next.disabled = selectedWeek === lastWeek;
+    const dates = Array.from({ length: 7 }, (_, i) => addDays(selectedWeek, i));
+    let html = '<table class="heatmap-table team-heatmap"><thead><tr><th></th>';
     for (const date of dates) {
-      const cls = teamDates[t].has(date) ? 'active' : 'inactive';
-      html += `<td class="heatmap-cell ${cls}"></td>`;
+      const d = new Date(date + 'T00:00:00');
+      const dow = d.getDay();
+      const isWeekend = dow === 0 || dow === 6;
+      const label = `${DAYS[dow].slice(0, 3)} ${d.getMonth() + 1}/${d.getDate()}`;
+      html += `<th class="date-header${isWeekend ? ' weekend' : ''}">${label}</th>`;
     }
-    html += '</tr>';
-  }
+    html += '</tr></thead><tbody>';
 
-  html += '</tbody></table>';
-  container.innerHTML = html;
+    for (let t = 0; t < numTeams; t++) {
+      html += `<tr><td class="team-name">${t + 1}B</td>`;
+      for (const date of dates) {
+        const cls = teamDates[t].has(date) ? 'active' : 'inactive';
+        html += `<td class="heatmap-cell ${cls}"></td>`;
+      }
+      html += '</tr>';
+    }
+
+    html += '</tbody></table>';
+    grid.innerHTML = html;
+  }
+  previous.addEventListener('click', () => { selectedWeek = addDays(selectedWeek, -7); renderWeek(); });
+  next.addEventListener('click', () => { selectedWeek = addDays(selectedWeek, 7); renderWeek(); });
+  renderWeek();
 }
 
 // ─── CSV Export ──────────────────────────────────────────────────────────────
