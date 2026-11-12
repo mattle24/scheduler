@@ -3,9 +3,7 @@
 ## Overview
 Browser-based little league baseball/softball scheduler. No server, no build tools — plain JS/CSS/HTML. Generates optimized game schedules for one or more divisions from a TSV field-availability matrix. Each division has its own team count, games-per-team, and set of valid fields.
 
-Whenever you make a change, check whether you need to update CLAUDE.md (this file) to keep it correct and up to date.
-
-Also check the methodology explainer in index.html to see if the user-facing docs should change.
+Whenever you make a change, check the methodology explainer in index.html to see if the user-facing docs should change.
 
 ## Files
 - **js/constants.js** — WEIGHTS, WEIGHT_LABELS, WEIGHT_DESCRIPTIONS, DAYS, NUM_ATTEMPTS, and bucket threshold/importance constants
