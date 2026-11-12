@@ -6,11 +6,12 @@ Browser-based little league baseball/softball scheduler. No server, no build too
 Whenever you make a change, check the methodology explainer in index.html to see if the user-facing docs should change.
 
 ## Files
-- **js/constants.js** — WEIGHTS, WEIGHT_LABELS, WEIGHT_DESCRIPTIONS, DAYS, NUM_ATTEMPTS, and bucket threshold/importance constants
+- **js/constants.js** — WEIGHTS, WEIGHT_LABELS, WEIGHT_DESCRIPTIONS, DAYS, NUM_ATTEMPTS, ANNEAL_ITERATIONS (+ setAnnealIterations for tests), and bucket threshold/importance constants
 - **js/utils.js** — Date/time helpers (parseDate, dateStr, daysBetween, getWeekendGroup, isoWeek), time slot helpers (normalizeTime, slotBucket, timeSortKey, formatTimeDisplay, slotKey, addDays), shuffle, hasThreeInFourDays, teamHasThreeInFourDays
 - **js/parser.js** — parseTSV: parses the field-availability TSV into slot objects
 - **js/matchups.js** — Round-robin matchup generation (generateTournamentRounds, selectMatchups, selectMatchupsWithLeagues), AL/NL league validation, fillWeekendByes, assignHomeAway, rebalanceHomeAway
-- **js/scoring.js** — scoreCandidate, scoreDetails (all 11 penalty metrics), scoreCrossfieldDivisionClustering, scoreWeekendOtherDivField
+- **js/scoring.js** — scoreCandidate, scoreDetails (all penalty metrics), scoreCrossDivision, scoreCrossfieldDivisionClustering, scoreWeekendOtherDivField. scoreDetails is built from shared term helpers (makeScoreContext, teamTerms, fieldDateTerms, shortGapBalanceOf, btbBalanceOf) that the incremental scorer also uses
+- **js/incrementalScore.js** — IncrementalScorer: caches per-team, per-field+date and per-date+time penalty terms so the annealer rescores only what a move touches (`begin(indices)` → mutate → `end()`)
 - **js/optimizer.js** — Post-greedy optimization: annealSchedule (simulated annealing), consolidateFields, slideCleanup
 - **js/builder.js** — Core scheduling pipeline: tryBuildSchedule (greedy builder, 200 attempts), buildSchedule (entry point: matchup gen → greedy → anneal → consolidate → slide → rebalance)
 - **js/state.js** — saveState, loadState, debouncedSave (localStorage persistence)
@@ -45,7 +46,7 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
    - OR `selectMatchupsWithLeagues()` — layered fill: intra-league pairs first, then inter-league, alternating layers
 4. `assignHomeAway()` — greedy + 2 repair passes (per-matchup balance, then overall ±1)
 5. `tryBuildSchedule()` — Phase 1: weekend rounds to weekend slots; Phase 1.5: overflow weekday games into unused weekend slots only when no eligible weekday slot exists (back-to-back Sat/Sun allowed, same-day blocked); Phase 2: weekday MRV greedy (most-constrained-game-first with LCV slot scoring). 250 random attempts, keeps best.
-6. `annealSchedule()` — post-greedy simulated annealing: 4 move types, 2000 iterations (see below).
+6. `annealSchedule()` — post-greedy simulated annealing: 4 move types, `ANNEAL_ITERATIONS` (20000) iterations, scored incrementally (see below).
 7. `consolidateFields()` — moves 1-2 game groups from a sparse field to a same-date field with ≥ as many games, if all games can be packed consecutively and score improves.
 8. `slideCleanup()` — for each weekend (field, date) with multiple games, tries all windows of N consecutive available slots and applies the best packing. Repeats until no improvement or 100 passes.
 9. `rebalanceHomeAway()` — final greedy home/away rebalancing pass after all field optimization; greedy flip pass plus a 2-hop chain pass through intermediate teams.
@@ -76,7 +77,11 @@ Weighted sum of penalties. Current weights in `WEIGHTS` global:
 - fieldDivisionClustering (20) — cross-division penalty for switching between divisions on the same field in a day; A-B-A patterns penalized 4x more than A-B switches. Computed across all divisions together via `scoreCrossfieldDivisionClustering()`, NOT per-division in scoreDetails.
 - weekendOtherDivField (4) — weekend game on a field+date that another division also uses; computed cross-division via `scoreWeekendOtherDivField()`, NOT per-division in scoreDetails.
 
-**Cross-division scoring pattern**: `fieldDivisionClustering` and `weekendOtherDivField` are both computed by standalone functions, then added to the global score in js/generate.js's three `globalScoreBefore`/`newGlobalScore` expressions. Neither appears in `scoreDetails` or `scoreCandidate`. Add new cross-division penalties the same way.
+**Cross-division scoring pattern**: `fieldDivisionClustering` and `weekendOtherDivField` are both computed by standalone functions, then added to the global score in `globalScore()` (js/generate.js). Neither appears in `scoreDetails` or `scoreCandidate`. The post-greedy optimizers (anneal, consolidate, slide) also include them via `scoreCrossDivision(schedule, otherGames, weights)`, which scores one division's schedule against `otherDivisionGames` (each game tagged with `division` name). Add new cross-division penalties to both places.
+
+**Re-optimization acceptance**: `globalScore` uses each division's own weights (`dr.weights` overrides merged over `WEIGHTS`), and old and new schedules are both scored against the same freed slot pool before comparing.
+
+**Slot stats cache**: `scoreDetails` reads slot-derived values (active weekends, buckets, fields, weekday slot count, weekend field+date times) from `getSlotStats`, cached per slots array in a WeakMap. Don't mutate a slots array after scoring it.
 
 **`clusteringScore` coupling**: The `clusteringScore` heuristic inside `tryBuildSchedule` guides greedy slot selection toward the same incentives as the formal penalties. Its magnitudes mirror `WEIGHTS.loneWeekendGame` (+1 reward for joining own games) and `WEIGHTS.weekendOtherDivField` (-4 for sharing with another division). Keep them in sync when adjusting weights.
 
@@ -134,7 +139,7 @@ When a division's "AL/NL" checkbox is enabled:
 - **`dateToWeekdayWeek` map**: Precomputed date → isoWeek key (only for weekdays, null for weekends). Combined with `teamWeekdayWeek` tracking map (weekday games per M-F week per team) to enforce the max-1-weekday-per-week constraint via O(1) map lookups instead of iterating dates.
 - **`dateToDow` map**: Precomputed date → day-of-week.
 
-**Rule of thumb**: Never create `new Date()` inside an eligibility filter. Precompute any date-derived value into a map keyed by date string at `tryBuildSchedule` init time. The `addDays()` utility is fine for one-off use (constraint helpers, scoring) but too expensive for per-slot-per-game-per-attempt hot paths.
+**Rule of thumb**: Never create `new Date()` inside an eligibility filter. Precompute any date-derived value into a map keyed by date string at `tryBuildSchedule` init time. `dayNum()`, `daysBetween()`, `addDays()` and `timeSortKey()` are memoized (string → integer caches) and cheap enough for scoring, but the builder's precomputed maps are still preferred in per-slot-per-game-per-attempt paths.
 
 ## Glossary
 
@@ -190,11 +195,11 @@ Hard constraints are checked inline via `hasThreeInFourDays` and `hasWeekdayGame
 
 ### Post-Greedy Simulated Annealing
 
-`annealSchedule` runs 2000 iterations after the greedy builder. Four move types:
+`annealSchedule` runs `ANNEAL_ITERATIONS` (20000) iterations after the greedy builder, yielding to the UI about every 16ms. Each move is scored with `IncrementalScorer`; the full scorer is used only for the initial and final scores. Any new per-division metric must be added via the shared term helpers in js/scoring.js so both scoring paths stay identical. Four move types:
 - **Same-date slot swap (40%):** Swap time+field between two games on the same date. Always valid since no date-based constraints change.
 - **Cross-date slot swap (15%):** Swap full slot (date, dayOfWeek, time, field) between two games. Validated against hard constraints (3-in-4-days, weekday-per-week, no same-day).
 - **Relocate to unused slot (25%):** Move a game to any unused slot from the available pool. Validated against hard constraints.
-- **Slide (20%):** Move a weekend game one slot earlier/later on the same field+date. No constraint check needed (same day, date-based constraints unchanged).
+- **Slide (20%):** Move a weekend game to the nearest free slot earlier/later on the same field+date. No constraint check needed (same day, date-based constraints unchanged).
 
-Uses Metropolis acceptance with geometric cooling (T: 2.0 → 0.01). Tracks used/unused slot sets for relocations. Tracks best schedule seen.
+Uses Metropolis acceptance with geometric cooling (T: 2.0 → 0.01). Tracks used/unused slot sets for relocations. Hard constraints are checked by a single `teamsValid` helper using a cached date → weekday-week map (no `new Date()`). Move candidate lists (multi-game dates, weekend games) are rebuilt only when a date-changing move is accepted. Score includes cross-division penalties against `otherDivisionGames`. Tracks best schedule seen.
 

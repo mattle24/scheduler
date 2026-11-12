@@ -1,12 +1,33 @@
 import { slotKey, timeSortKey, isoWeek, teamHasThreeInFourDays } from './utils.js';
-import { scoreCandidate } from './scoring.js';
+import { scoreCandidate, scoreCrossDivision } from './scoring.js';
+import { IncrementalScorer } from './incrementalScore.js';
+
+// Per-division score plus cross-division penalties against other divisions' games,
+// so post-greedy optimization doesn't undo cross-division clustering.
+function makeScorer(numTeams, slots, weights, otherGames) {
+  return sched => scoreCandidate(sched, numTeams, slots, weights) + scoreCrossDivision(sched, otherGames, weights);
+}
+
+// Precomputed date → weekday ISO-week key (null for weekend dates). Avoids
+// constructing Date objects inside the annealer's constraint checks.
+const weekdayWeekCache = new Map();
+function weekdayWeekOf(date, dayOfWeek) {
+  if (dayOfWeek === 0 || dayOfWeek === 6) return null;
+  let wk = weekdayWeekCache.get(date);
+  if (wk === undefined) { wk = isoWeek(date); weekdayWeekCache.set(date, wk); }
+  return wk;
+}
 
 // ─── Module 4b: Simulated Annealing ─────────────────────────────────────────
-function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onProgress) {
+function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onProgress, otherGames) {
   if (!maxIterations) maxIterations = 2000;
+  const score = makeScorer(numTeams, slots, weights, otherGames);
   const current = schedule.map(g => ({...g}));
-  let currentScore = scoreCandidate(current, numTeams, slots, weights);
-  const initialScore = currentScore;
+  const initialFullScore = score(current);
+  // Moves are scored incrementally (only touched teams/field-dates recomputed);
+  // the full scorer is used only for the reported initial/final scores.
+  const scorer = new IncrementalScorer(current, numTeams, slots, weights, otherGames);
+  let currentScore = scorer.total();
   let bestSchedule = current.map(g => ({...g, sortKey: slotKey(g)}));
   let bestScore = currentScore;
 
@@ -20,8 +41,20 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
     }
     return map;
   }
-  let dateToGameIndices = buildDateIndex();
-  const multiGameDates = () => [...dateToGameIndices.entries()].filter(([, idx]) => idx.length >= 2);
+  function buildWeekendIndices() {
+    const out = [];
+    for (let k = 0; k < current.length; k++) {
+      if (current[k].dayOfWeek === 0 || current[k].dayOfWeek === 6) out.push(k);
+    }
+    return out;
+  }
+  // Cached move candidates; rebuilt only when a date-changing move is accepted
+  let multiGameDates, weekendIndices;
+  function rebuildIndices() {
+    multiGameDates = [...buildDateIndex().values()].filter(idx => idx.length >= 2);
+    weekendIndices = buildWeekendIndices();
+  }
+  rebuildIndices();
 
   // Build slot lookup by sortKey for relocations
   const slotBySortKey = new Map();
@@ -31,8 +64,18 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
   const usedKeys = new Set();
   for (const g of current) usedKeys.add(g.sortKey);
 
-  // Unused slots array (rebuilt periodically since relocations change it)
-  let unusedSlots = slots.filter(s => !usedKeys.has(s.sortKey));
+  // Unused slots array, with sortKey → index for O(1) swaps
+  const unusedSlots = slots.filter(s => !usedKeys.has(s.sortKey));
+  const unusedIndex = new Map(unusedSlots.map((s, i) => [s.sortKey, i]));
+  function markUsed(newKey, oldKey) {
+    usedKeys.delete(oldKey);
+    usedKeys.add(newKey);
+    const i = unusedIndex.get(newKey);
+    if (i === undefined) return;
+    unusedIndex.delete(newKey);
+    unusedSlots[i] = slotBySortKey.get(oldKey);
+    unusedIndex.set(oldKey, i);
+  }
 
   // Precompute field+date → time-sorted slots for slide moves
   const fieldDateSlots = new Map();
@@ -44,56 +87,28 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
   }
   for (const [, arr] of fieldDateSlots) arr.sort((a, b) => timeSortKey(a.time) - timeSortKey(b.time));
 
-  // Hard constraint validation for a single game's teams after relocation
-  function relocateValid(gameIdx) {
-    const teams = [current[gameIdx].home, current[gameIdx].away];
+  // Hard constraints for the given games' teams, checked on the current state:
+  // no same-day games, no 3 in 4 days, max 1 weekday game per Mon–Fri week.
+  function teamsValid(gameIndices) {
+    const teams = new Set();
+    for (const gi of gameIndices) { teams.add(current[gi].home); teams.add(current[gi].away); }
     for (const t of teams) {
       const dates = [];
+      const weekdayWeeks = new Set();
       for (const g of current) {
-        if (g.home === t || g.away === t) dates.push(g.date);
+        if (g.home !== t && g.away !== t) continue;
+        dates.push(g.date);
+        const wk = weekdayWeekOf(g.date, g.dayOfWeek);
+        if (wk) {
+          if (weekdayWeeks.has(wk)) return false;
+          weekdayWeeks.add(wk);
+        }
       }
       dates.sort();
       for (let k = 1; k < dates.length; k++) {
         if (dates[k] === dates[k - 1]) return false;
       }
       if (teamHasThreeInFourDays(dates)) return false;
-      const weekdayByWeek = new Map();
-      for (const d of dates) {
-        const dt = new Date(d + 'T00:00:00');
-        const dow = dt.getDay();
-        if (dow >= 1 && dow <= 5) {
-          const wk = isoWeek(d);
-          weekdayByWeek.set(wk, (weekdayByWeek.get(wk) || 0) + 1);
-          if (weekdayByWeek.get(wk) > 1) return false;
-        }
-      }
-    }
-    return true;
-  }
-
-  // Hard constraint validation for cross-date swaps (applied after swap)
-  function crossDateSwapValid(i, j) {
-    const affectedTeams = new Set([current[i].home, current[i].away, current[j].home, current[j].away]);
-    for (const t of affectedTeams) {
-      const dates = [];
-      for (const g of current) {
-        if (g.home === t || g.away === t) dates.push(g.date);
-      }
-      dates.sort();
-      for (let k = 1; k < dates.length; k++) {
-        if (dates[k] === dates[k - 1]) return false;
-      }
-      if (teamHasThreeInFourDays(dates)) return false;
-      const weekdayByWeek = new Map();
-      for (const d of dates) {
-        const dt = new Date(d + 'T00:00:00');
-        const dow = dt.getDay();
-        if (dow >= 1 && dow <= 5) {
-          const wk = isoWeek(d);
-          weekdayByWeek.set(wk, (weekdayByWeek.get(wk) || 0) + 1);
-          if (weekdayByWeek.get(wk) > 1) return false;
-        }
-      }
     }
     return true;
   }
@@ -128,29 +143,32 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
 
   return new Promise((resolve) => {
     let iter = 0;
+    // Yield to the UI about once per frame. Time-based batching avoids the
+    // browser's ~4ms clamp on nested setTimeout(0) dominating short batches.
     function step() {
-      const batchEnd = Math.min(iter + 100, maxIterations);
-      for (; iter < batchEnd; iter++) {
+      const sliceEnd = performance.now() + 16;
+      for (; iter < maxIterations && (iter % 50 !== 0 || performance.now() < sliceEnd); iter++) {
         const r = Math.random();
         // Move types: 40% same-date swap, 15% cross-date swap, 25% relocate, 20% slide
         if (r < 0.4) {
           // Same-date swap
-          const candidates = multiGameDates();
-          if (candidates.length === 0) { T *= alpha; continue; }
-          const [, indices] = candidates[Math.floor(Math.random() * candidates.length)];
+          if (multiGameDates.length === 0) { T *= alpha; continue; }
+          const indices = multiGameDates[Math.floor(Math.random() * multiGameDates.length)];
           const a = Math.floor(Math.random() * indices.length);
           let b = Math.floor(Math.random() * (indices.length - 1));
           if (b >= a) b++;
           const swapI = indices[a], swapJ = indices[b];
+          scorer.begin([swapI, swapJ]);
           const saved = swapSlots(swapI, swapJ, true);
-
-          const newScore = scoreCandidate(current, numTeams, slots, weights);
+          const newScore = scorer.end();
           const delta = newScore - currentScore;
           if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
             currentScore = newScore;
             if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g, sortKey: slotKey(g)})); }
           } else {
+            scorer.begin([swapI, swapJ]);
             revertSwap(swapI, swapJ, saved);
+            scorer.end();
           }
         } else if (r < 0.55) {
           // Cross-date swap
@@ -158,21 +176,24 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
           let swapJ = Math.floor(Math.random() * (current.length - 1));
           if (swapJ >= swapI) swapJ++;
           if (current[swapI].date === current[swapJ].date) { T *= alpha; continue; }
+          scorer.begin([swapI, swapJ]);
           const saved = swapSlots(swapI, swapJ, false);
-          if (!crossDateSwapValid(swapI, swapJ)) {
+          if (!teamsValid([swapI, swapJ])) {
             revertSwap(swapI, swapJ, saved);
+            scorer.end();
             T *= alpha;
             continue;
           }
-
-          const newScore = scoreCandidate(current, numTeams, slots, weights);
+          const newScore = scorer.end();
           const delta = newScore - currentScore;
           if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
             currentScore = newScore;
-            dateToGameIndices = buildDateIndex();
+            rebuildIndices();
             if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g, sortKey: slotKey(g)})); }
           } else {
+            scorer.begin([swapI, swapJ]);
             revertSwap(swapI, swapJ, saved);
+            scorer.end();
           }
         } else if (r < 0.80) {
           // Relocate: move a game to an unused slot
@@ -185,68 +206,67 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
           const oldKey = slotKey(g);
 
           // Apply relocation
+          scorer.begin([gi]);
           g.date = newSlot.date;
           g.dayOfWeek = newSlot.dayOfWeek;
           g.weekendGroup = newSlot.weekendGroup;
           g.time = newSlot.time;
           g.field = newSlot.field;
 
-          if (!relocateValid(gi)) {
+          if (!teamsValid([gi])) {
             // Revert
             Object.assign(g, savedSlot);
+            scorer.end();
             T *= alpha;
             continue;
           }
-
-          const newScore = scoreCandidate(current, numTeams, slots, weights);
+          const newScore = scorer.end();
           const delta = newScore - currentScore;
           if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
             currentScore = newScore;
             // Update used/unused tracking
-            usedKeys.delete(oldKey);
-            usedKeys.add(newSlot.sortKey);
-            unusedSlots[si] = slotBySortKey.get(oldKey) || { ...savedSlot, sortKey: oldKey };
-            dateToGameIndices = buildDateIndex();
+            markUsed(newSlot.sortKey, oldKey);
+            rebuildIndices();
             if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g, sortKey: slotKey(g)})); }
           } else {
+            scorer.begin([gi]);
             Object.assign(g, savedSlot);
+            scorer.end();
           }
         } else {
-          // Slide: move a weekend game one slot earlier or later on the same field+date
-          const weekendIndices = [];
-          for (let k = 0; k < current.length; k++) {
-            if (current[k].dayOfWeek === 0 || current[k].dayOfWeek === 6) weekendIndices.push(k);
-          }
+          // Slide: move a weekend game to the nearest free slot earlier or later on the same field+date
           if (weekendIndices.length === 0) { T *= alpha; continue; }
           const gi = weekendIndices[Math.floor(Math.random() * weekendIndices.length)];
           const g = current[gi];
-          const fdKey = g.field + '|' + g.date;
-          const fdSlots = fieldDateSlots.get(fdKey);
+          const fdSlots = fieldDateSlots.get(g.field + '|' + g.date);
           if (!fdSlots) { T *= alpha; continue; }
           const idx = fdSlots.findIndex(s => s.time === g.time);
           if (idx === -1) { T *= alpha; continue; }
 
           const candidates = [];
-          if (idx > 0 && !usedKeys.has(fdSlots[idx - 1].sortKey)) candidates.push(fdSlots[idx - 1]);
-          if (idx < fdSlots.length - 1 && !usedKeys.has(fdSlots[idx + 1].sortKey)) candidates.push(fdSlots[idx + 1]);
+          for (let k = idx - 1; k >= 0; k--) {
+            if (!usedKeys.has(fdSlots[k].sortKey)) { candidates.push(fdSlots[k]); break; }
+          }
+          for (let k = idx + 1; k < fdSlots.length; k++) {
+            if (!usedKeys.has(fdSlots[k].sortKey)) { candidates.push(fdSlots[k]); break; }
+          }
           if (candidates.length === 0) { T *= alpha; continue; }
 
           const newSlot = candidates[Math.floor(Math.random() * candidates.length)];
           const oldKey = slotKey(g);
           const savedTime = g.time;
+          scorer.begin([gi]);
           g.time = newSlot.time;
-
-          const newScore = scoreCandidate(current, numTeams, slots, weights);
+          const newScore = scorer.end();
           const delta = newScore - currentScore;
           if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
             currentScore = newScore;
-            usedKeys.delete(oldKey);
-            usedKeys.add(newSlot.sortKey);
-            const newSlotUnusedIdx = unusedSlots.findIndex(s => s.sortKey === newSlot.sortKey);
-            if (newSlotUnusedIdx !== -1) unusedSlots[newSlotUnusedIdx] = slotBySortKey.get(oldKey);
+            markUsed(newSlot.sortKey, oldKey);
             if (currentScore < bestScore) { bestScore = currentScore; bestSchedule = current.map(g => ({...g, sortKey: slotKey(g)})); }
           } else {
+            scorer.begin([gi]);
             g.time = savedTime;
+            scorer.end();
           }
         }
 
@@ -256,7 +276,8 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
       if (iter < maxIterations) {
         setTimeout(step, 0);
       } else {
-        resolve({ schedule: bestSchedule, score: bestScore, improved: bestScore < initialScore });
+        const finalScore = score(bestSchedule);
+        resolve({ schedule: bestSchedule, score: finalScore, improved: finalScore < initialFullScore });
       }
     }
     step();
@@ -267,7 +288,8 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
 // For each weekend (field, date) with 1-2 games (source), try moving those games
 // to another field (target) on the same date that has >= as many games and enough
 // free slots to hold all games consecutively. Accepts only score improvements.
-function consolidateFields(schedule, numTeams, slots, weights) {
+function consolidateFields(schedule, numTeams, slots, weights, otherGames) {
+  const score = makeScorer(numTeams, slots, weights, otherGames);
   const current = schedule.map(g => ({...g}));
 
   const fieldDateSlots = new Map();
@@ -279,7 +301,7 @@ function consolidateFields(schedule, numTeams, slots, weights) {
   }
   for (const [, arr] of fieldDateSlots) arr.sort((a, b) => timeSortKey(a.time) - timeSortKey(b.time));
 
-  let currentScore = scoreCandidate(current, numTeams, slots, weights);
+  let currentScore = score(current);
 
   function buildFieldDateGames() {
     const map = new Map();
@@ -339,7 +361,7 @@ function consolidateFields(schedule, numTeams, slots, weights) {
               current[allIndices[i]].field = tgtField;
               current[allIndices[i]].time = tgtSlots[w + i].time;
             }
-            const newScore = scoreCandidate(current, numTeams, slots, weights);
+            const newScore = score(current);
             if (newScore < bestScore) { bestScore = newScore; bestWindow = w; }
             for (let i = 0; i < combinedN; i++) {
               current[allIndices[i]].field = savedState[i].field;
@@ -369,7 +391,8 @@ function consolidateFields(schedule, numTeams, slots, weights) {
 // For each weekend (field, date) with multiple games, try all windows of N
 // consecutive available slots and apply the best packing. Repeats until no
 // improvement or 100 passes.
-function slideCleanup(schedule, numTeams, slots, weights) {
+function slideCleanup(schedule, numTeams, slots, weights, otherGames) {
+  const score = makeScorer(numTeams, slots, weights, otherGames);
   const current = schedule.map(g => ({...g}));
 
   const fieldDateSlots = new Map();
@@ -381,7 +404,7 @@ function slideCleanup(schedule, numTeams, slots, weights) {
   }
   for (const [, arr] of fieldDateSlots) arr.sort((a, b) => timeSortKey(a.time) - timeSortKey(b.time));
 
-  let currentScore = scoreCandidate(current, numTeams, slots, weights);
+  let currentScore = score(current);
 
   for (let pass = 0; pass < 100; pass++) {
     let improved = false;
@@ -414,7 +437,7 @@ function slideCleanup(schedule, numTeams, slots, weights) {
 
       for (let w = 0; w <= M - N; w++) {
         for (let i = 0; i < N; i++) current[gameIndices[i]].time = fdSlots[w + i].time;
-        const newScore = scoreCandidate(current, numTeams, slots, weights);
+        const newScore = score(current);
         if (newScore < bestScore) { bestScore = newScore; bestWindow = w; }
         for (let i = 0; i < N; i++) current[gameIndices[i]].time = savedTimes[i];
       }

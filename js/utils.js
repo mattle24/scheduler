@@ -26,8 +26,21 @@ function dateStr(d) {
   return d.toISOString().slice(0, 10);
 }
 
+// Memoized ISO date string ("2026-04-11") → integer days since epoch (UTC).
+// Date strings repeat constantly in scoring hot loops; parsing once avoids
+// millions of Date allocations.
+const dayNumCache = new Map();
+function dayNum(dateString) {
+  let n = dayNumCache.get(dateString);
+  if (n === undefined) {
+    n = Math.round(Date.parse(dateString.slice(0, 10) + 'T00:00:00Z') / 86400000);
+    dayNumCache.set(dateString, n);
+  }
+  return n;
+}
+
 function daysBetween(a, b) {
-  return Math.round((new Date(b) - new Date(a)) / 86400000);
+  return dayNum(b) - dayNum(a);
 }
 
 function getWeekendGroup(date) {
@@ -67,13 +80,22 @@ function slotBucket(dayOfWeek, time) {
   return ['SUN','MON','TUE','WED','THU','FRI','SAT'][dayOfWeek];
 }
 
+// Memoized: called on every game in every scoring pass.
+const timeSortKeyCache = new Map();
 function timeSortKey(t) {
+  let v = timeSortKeyCache.get(t);
+  if (v !== undefined) return v;
   const m = t.match(/^(\d{1,2}):(\d{2})(am|pm)$/i);
-  if (!m) return 0;
-  let h = +m[1], min = +m[2], ampm = m[3].toLowerCase();
-  if (ampm === 'pm' && h !== 12) h += 12;
-  if (ampm === 'am' && h === 12) h = 0;
-  return h * 60 + min;
+  if (!m) v = 0;
+  else {
+    let h = +m[1];
+    const min = +m[2], ampm = m[3].toLowerCase();
+    if (ampm === 'pm' && h !== 12) h += 12;
+    if (ampm === 'am' && h === 12) h = 0;
+    v = h * 60 + min;
+  }
+  timeSortKeyCache.set(t, v);
+  return v;
 }
 
 function formatTimeDisplay(t) {
@@ -84,10 +106,15 @@ function slotKey(g) {
   return g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field;
 }
 
+const dayStrCache = new Map();
 function addDays(dateString, n) {
-  const d = new Date(dateString + 'T00:00:00');
-  d.setDate(d.getDate() + n);
-  return dateStr(d);
+  const target = dayNum(dateString) + n;
+  let s = dayStrCache.get(target);
+  if (s === undefined) {
+    s = new Date(target * 86400000).toISOString().slice(0, 10);
+    dayStrCache.set(target, s);
+  }
+  return s;
 }
 
 // Returns true if adding newDate would give the team 3+ games in any 4-day window
@@ -122,11 +149,11 @@ function hasThreeInFourDays(sortedDayNums, newDayNum) {
 
 // Returns true if a sorted array of dates contains 3+ games in any 4-day window
 function teamHasThreeInFourDays(datesArray) {
-  const sorted = [...datesArray].sort();
+  const sorted = datesArray.map(dayNum).sort((a, b) => a - b);
   for (let i = 0; i < sorted.length; i++) {
     let count = 1;
     for (let j = i + 1; j < sorted.length; j++) {
-      if (daysBetween(sorted[i], sorted[j]) <= 3) count++;
+      if (sorted[j] - sorted[i] <= 3) count++;
       else break;
     }
     if (count >= 3) return true;
@@ -134,4 +161,4 @@ function teamHasThreeInFourDays(datesArray) {
   return false;
 }
 
-export { shuffle, parseDate, dateStr, daysBetween, getWeekendGroup, isoWeek, normalizeTime, slotBucket, timeSortKey, formatTimeDisplay, slotKey, addDays, hasThreeInFourDays, teamHasThreeInFourDays };
+export { shuffle, parseDate, dateStr, dayNum, daysBetween, getWeekendGroup, isoWeek, normalizeTime, slotBucket, timeSortKey, formatTimeDisplay, slotKey, addDays, hasThreeInFourDays, teamHasThreeInFourDays };

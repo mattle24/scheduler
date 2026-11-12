@@ -1,5 +1,8 @@
 const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const NUM_ATTEMPTS = 250;
+// Simulated annealing iterations per division build (moves are scored incrementally)
+let ANNEAL_ITERATIONS = 20000;
+function setAnnealIterations(n) { ANNEAL_ITERATIONS = n; }
 const WKND_BUCKET_THRESHOLDS = [630, 900]; // minutes: early < 10:30am, mid 10:30am–3pm, late >= 3pm
 const WKND_BUCKET_IMPORTANCE = { WKND_EARLY: 1.5, WKND_MID: 0.5, WKND_LATE: 1.5 };
 
@@ -60,4 +63,4 @@ const WEIGHT_DESCRIPTIONS = {
   weekendSitouts: 'Penalizes when a team has zero games on a weekend. Higher = fewer idle weekends per team.',
 };
 
-export { DAYS, NUM_ATTEMPTS, WKND_BUCKET_THRESHOLDS, WKND_BUCKET_IMPORTANCE, WEIGHTS, WEIGHT_LABELS, WEIGHT_DESCRIPTIONS };
+export { ANNEAL_ITERATIONS, setAnnealIterations, DAYS, NUM_ATTEMPTS, WKND_BUCKET_THRESHOLDS, WKND_BUCKET_IMPORTANCE, WEIGHTS, WEIGHT_LABELS, WEIGHT_DESCRIPTIONS };

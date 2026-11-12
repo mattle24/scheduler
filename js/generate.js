@@ -82,6 +82,7 @@ function generate() {
 
         divisionResults.push({
           division: div,
+          weights: divWeightOverrides,
           schedule: finalSchedule,
           details: finalDetails,
           greedyDetails: result.details,
@@ -98,7 +99,6 @@ function generate() {
         for (let round = 0; round < MAX_ROUNDS; round++) {
           let improved = false;
 
-          let currentGlobalScore = globalScore(divisionResults);
 
           for (let i = 0; i < divisionResults.length; i++) {
             const dr = divisionResults[i];
@@ -123,10 +123,11 @@ function generate() {
               <div class="progress-label" id="progressLabel">0% of maximum passes (may finish early)</div>`;
             updateProgress('Building candidates', 0, Infinity);
 
-            // Collect other divisions' games so the greedy builder can cluster
+            // Collect other divisions' games (tagged with division name) so the
+            // greedy builder and optimizer can score cross-division clustering
             const otherDivisionGames = divisionResults
               .filter((_, j) => j !== i)
-              .flatMap(r => r.schedule);
+              .flatMap(r => r.schedule.map(g => ({ ...g, division: r.division.name })));
 
             const divWeightOverrides = readDivWeightOverrides(mainRows[i]);
             const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, updateProgress,
@@ -138,23 +139,26 @@ function generate() {
 
             // Compare: does replacing this division improve the global score (including cross-division clustering)?
             // Temporarily swap in the new schedule to compute global scores
-            const oldDetails = dr.details;
-            const oldSchedule = dr.schedule;
+            // Score old and new against the same slot pool (divSlots) so the
+            // comparison isn't skewed by slot-derived terms like active weekends.
+            const oldRescored = scoreDetails(dr.schedule, div.numTeams, divSlots);
+            divisionResults[i] = { ...dr, details: oldRescored, slots: divSlots };
+            const currentGlobalScore = globalScore(divisionResults);
             divisionResults[i] = { ...dr, schedule: newSchedule, details: newDetails, slots: divSlots };
             const newGlobalScore = globalScore(divisionResults);
-            divisionResults[i] = { ...dr, schedule: oldSchedule, details: oldDetails };
+            divisionResults[i] = dr;
 
             if (newGlobalScore < currentGlobalScore) {
               // Accept: update division result and claim new slots
               divisionResults[i] = {
                 division: div,
+                weights: divWeightOverrides,
                 schedule: newSchedule,
                 details: newDetails,
                 greedyDetails: result.details,
                 slots: divSlots
               };
               for (const g of newSchedule) claimedKeys.add(g.sortKey);
-              currentGlobalScore = newGlobalScore;
               improved = true;
             } else {
               // Reject: re-claim original slots
@@ -181,15 +185,18 @@ function generate() {
 // ─── Scoring ─────────────────────────────────────────────────────────────────
 
 function globalScore(divisionResults) {
-  return divisionResults.reduce((sum, r) => sum + weightedScore(r.details), 0)
+  return divisionResults.reduce((sum, r) => sum + weightedScore(r.details, r.weights), 0)
     + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0)
     + scoreWeekendOtherDivField(divisionResults) * (WEIGHTS.weekendOtherDivField || 0);
 }
 
-function weightedScore(d) {
+// Per-division score using the same weights (global + division overrides) the
+// division was optimized with.
+function weightedScore(d, overrides) {
+  const W = overrides ? { ...WEIGHTS, ...overrides } : WEIGHTS;
   let score = 0;
-  for (const key in WEIGHTS) {
-    if (d[key] != null) score += d[key] * WEIGHTS[key];
+  for (const key in W) {
+    if (d[key] != null) score += d[key] * W[key];
   }
   return score;
 }

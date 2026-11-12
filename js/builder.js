@@ -1,7 +1,7 @@
-import { WEIGHTS, NUM_ATTEMPTS } from './constants.js';
+import { WEIGHTS, NUM_ATTEMPTS, ANNEAL_ITERATIONS } from './constants.js';
 import { isoWeek, addDays, hasThreeInFourDays, shuffle } from './utils.js';
 import { generateTournamentRounds, selectMatchups, selectMatchupsWithLeagues, validateLeagueSplit, assignHomeAway, rebalanceHomeAway } from './matchups.js';
-import { scoreCandidate, scoreDetails } from './scoring.js';
+import { scoreCandidate, scoreDetails, scoreCrossDivision } from './scoring.js';
 import { annealSchedule, consolidateFields, slideCleanup } from './optimizer.js';
 
 function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchups, weights) {
@@ -571,8 +571,8 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
   const greedyProgress = onProgress ? (pct, score) => onProgress('Building candidates', pct, score) : null;
   const annealProgress = onProgress ? (pct, score) => onProgress('Optimizing schedule', pct, score) : null;
   return tryBuildSchedule(games, slots, numTeams, greedyProgress, { weekendRounds, weekdayGames, slotScarcity, otherDivisionGames }, W).then(result => {
-    const preAnnealScore = scoreCandidate(result.schedule, numTeams, slots, W);
-    return annealSchedule(result.schedule, numTeams, slots, undefined, W, annealProgress).then(saResult => {
+    const preAnnealScore = scoreCandidate(result.schedule, numTeams, slots, W) + scoreCrossDivision(result.schedule, otherDivisionGames, W);
+    return annealSchedule(result.schedule, numTeams, slots, ANNEAL_ITERATIONS, W, annealProgress, otherDivisionGames).then(saResult => {
       console.log(`Anneal: ${preAnnealScore.toFixed(2)} → ${saResult.score.toFixed(2)} (${saResult.improved ? 'improved' : 'no improvement'})`);
       if (saResult.improved) {
         result.schedule = saResult.schedule;
@@ -580,8 +580,8 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
       if (onProgress) onProgress('Cleaning up the schedule', null, saResult.score);
       return new Promise(resolve => setTimeout(resolve, 0)).then(() => {
         const preSlideScore = scoreCandidate(result.schedule, numTeams, slots, W);
-        result.schedule = consolidateFields(result.schedule, numTeams, slots, W);
-        result.schedule = slideCleanup(result.schedule, numTeams, slots, W);
+        result.schedule = consolidateFields(result.schedule, numTeams, slots, W, otherDivisionGames);
+        result.schedule = slideCleanup(result.schedule, numTeams, slots, W, otherDivisionGames);
         const postSlideScore = scoreCandidate(result.schedule, numTeams, slots, W);
         console.log(`Consolidate+repack: ${preSlideScore.toFixed(2)} → ${postSlideScore.toFixed(2)}`);
         rebalanceHomeAway(result.schedule, numTeams, gamesPerTeam);
