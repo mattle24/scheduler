@@ -1,11 +1,12 @@
+import { restoreSchedule, clearSchedule } from './scheduleSession.js';
 import { loadState, debouncedSave } from './state.js';
 import {
   addDivisionRow, removeDivisionRow, buildPenaltyGrid,
   updateFieldChoices, resetWeights, togglePenalties,
   toggleDivWeights, clearCachedFields, readDivisions
 } from './divisions.js?v=4';
-import { downloadCSV, showError, clearError } from './render.js?v=2';
-import { generate } from './generate.js?v=8';
+import { downloadCSV, showError, clearError } from './render.js?v=3';
+import { generate } from './generate.js?v=9';
 import { parseTSV } from './parser.js?v=3';
 
 function updateAvailabilityPreview() {
@@ -123,18 +124,17 @@ function clearInputs() {
   showView('setup');
   clearError();
 
-  localStorage.removeItem('scheduler_state');
+  try { localStorage.removeItem('scheduler_state'); } catch {}
+  clearSchedule();
 }
 
 function showView(view) {
-  if (view === 'results' && document.getElementById('resultsTab').disabled) return;
-  const showingResults = view === 'results';
-  document.getElementById('settingsCard').classList.toggle('hidden', showingResults);
-  document.getElementById('results').classList.toggle('hidden', !showingResults);
-  for (const [tab, active] of [[document.getElementById('setupTab'), !showingResults], [document.getElementById('resultsTab'), showingResults]]) {
-    tab.classList.toggle('active', active);
-    if (active) tab.setAttribute('aria-current', 'page');
-    else tab.removeAttribute('aria-current');
+  if (view !== 'setup' && document.getElementById(view === 'edit' ? 'editTab' : 'resultsTab').disabled) return;
+  for (const [name,id] of [['setup','settingsCard'],['results','results'],['edit','editSchedule']]) {
+    document.getElementById(id).classList.toggle('hidden',view!==name);
+    const tab=document.getElementById(name==='setup'?'setupTab':name==='results'?'resultsTab':'editTab');
+    tab.classList.toggle('active',view===name);
+    if(view===name) tab.setAttribute('aria-current','page'); else tab.removeAttribute('aria-current');
   }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -217,9 +217,11 @@ window.downloadCSV = downloadCSV;
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('setupTab').addEventListener('click', () => showView('setup'));
+  document.getElementById('editTab').addEventListener('click', () => showView('edit'));
   document.getElementById('resultsTab').addEventListener('click', () => showView('results'));
   document.addEventListener('scheduler:results-ready', () => {
     document.getElementById('resultsTab').disabled = false;
+    document.getElementById('editTab').disabled = false;
     showView('results');
   });
   buildPenaltyGrid();
@@ -234,6 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   updateAvailabilityPreview();
   updateReadiness();
+  restoreSchedule();
 
   // Update field checkboxes when TSV changes
   let debounceTimer;

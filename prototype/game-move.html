@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Game move lab · Little League Scheduler</title>
+  <link rel="stylesheet" href="game-move.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="page-header">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">⚾</span><span>Little League Scheduler <span class="brand-separator">/</span> Move lab</span></div>
+      <span class="prototype-badge">Mock data · separate prototype</span>
+    </header>
+
+    <section class="intro" aria-labelledby="pageTitle">
+      <div>
+        <p class="eyebrow">Interactive concept</p>
+        <h1 id="pageTitle">Move a game. See the tradeoffs.</h1>
+        <p>Choose a game on a field, then try an open time or swap with another game across the season. Preview what changes for each team and for field operations before you apply it.</p>
+      </div>
+      <div class="intro-note"><strong>For discussion</strong><span>Fictional teams, fields, and illustrative penalty weights. Changes stay in this browser tab.</span></div>
+    </section>
+
+    <main class="workspace">
+      <div class="main-column">
+        <div class="schedule-card">
+        <h2 class="workspace-title" id="workspaceTitle">Explore move and swap options</h2>
+        <div class="view-selection-card">
+        <div class="view-toggle" role="group" aria-label="Schedule view">
+          <button type="button" id="scheduleView" aria-pressed="true">View as schedule</button><button type="button" id="tableView" aria-pressed="false">View as table</button>
+        </div>
+        <div id="selectionBar" class="selection-bar" hidden></div>
+        </div>
+        <section class="board-panel" aria-labelledby="workspaceTitle">
+          <div class="section-heading">
+            
+            <div class="week-controls"><button type="button" id="previousWeek" aria-label="Previous week">←</button><label class="week-jump">Jump to week <select id="weekJump" aria-label="Jump to week"></select></label><button type="button" id="nextWeek" aria-label="Next week">→</button></div>
+          </div>
+          <p class="section-help">Select a game, then select an open time to move it or another game to swap, including one in another division. Both games must be eligible for their new slots. Use Clear selection when you want to choose a different game. Hover over a slot for its action or a blocked reason.</p>
+          <div class="legend"><span><i class="legend-game"></i> Scheduled game</span><span><i class="legend-source"></i> Selected game</span><span><i class="legend-open"></i> Legal move</span><span><i class="legend-blocked"></i> Blocked</span></div>
+          <div id="fieldBoard" class="field-board"></div>
+        </section>
+
+        <section class="options-panel" aria-labelledby="workspaceTitle" hidden>
+          <div class="section-heading"><span id="optionCount" class="option-count"></span></div>
+          <div class="filter-row"><label>Date <select id="dateFilter"></select></label><label>Field <select id="fieldFilter"></select></label><label>Order <select id="sortFilter"><option value="score">Best score first</option><option value="date">Date and time</option></select></label></div>
+          <div id="optionList" class="option-list"></div>
+        </section>
+        </div>
+      </div>
+
+      <div class="preview-column">
+      <div class="undo-card"><button type="button" id="undoButton">Undo last change</button></div>
+      <aside class="inspector" aria-labelledby="inspectorTitle">
+        <div class="inspector-top"><p class="eyebrow">03 · Move preview</p><h2 id="inspectorTitle">What changes?</h2></div>
+        <div id="inspectorBody"></div>
+      </aside>
+      </div>
+    </main>
+  </div>
+  <script type="module" src="game-move.js"></script>
+</body>
+</html>

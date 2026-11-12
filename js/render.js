@@ -1,3 +1,4 @@
+import { renderCalendar } from './calendar.js';
 import { DAYS } from './constants.js';
 import { daysBetween, slotBucket, timeSortKey, formatTimeDisplay, isoWeek, addDays } from './utils.js';
 
@@ -59,6 +60,10 @@ function renderMultiDivisionResults(divisionResults, allSlots) {
     section.appendChild(intro);
 
     renderDivisionBlock(section, dr.schedule, dr.details, dr.division.numTeams, dr.division.leagueSplit);
+    const calendarCard=document.createElement('div'); calendarCard.className='card';
+    const title=document.createElement('h2'); title.textContent=dr.division.name+' Schedule'; calendarCard.append(title);
+    renderCalendar(calendarCard,dr.schedule,allSlots.filter(s=>dr.division.fields.includes(s.field)&&!dr.division.excludedDays.includes(s.dayOfWeek)),{numTeams:dr.division.numTeams,divisionIndex:i});
+    section.append(calendarCard);
     container.appendChild(section);
   }
 
@@ -72,7 +77,12 @@ function renderMultiDivisionResults(divisionResults, allSlots) {
     heading.className = 'field-schedules-heading';
     heading.textContent = 'Fields';
     fields.appendChild(heading);
-    renderFieldSections(fields, divisionResults, allSlots, fieldNames);
+    for (const field of fieldNames) {
+      const card=document.createElement('section'); card.className='card';
+      const title=document.createElement('h2'); title.textContent=field; card.append(title);
+      const games=divisionResults.flatMap((r,i)=>r.schedule.filter(g=>g.field===field).map(g=>({...g,divisionName:r.division.name,divisionIndex:i})));
+      renderCalendar(card,games,allSlots.filter(s=>s.field===field),{showOpenSlots:true}); fields.append(card);
+    }
     container.appendChild(fields);
   }
 }
@@ -457,12 +467,7 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
   summaryCard.innerHTML = '<h2>Per-Team Summary</h2>' + html;
   container.appendChild(summaryCard);
 
-  // Heatmap
-  const heatmapCard = document.createElement('div');
-  heatmapCard.className = 'card';
-  heatmapCard.innerHTML = '<h2>Team Schedule</h2><div></div>';
-  renderHeatmapInto(heatmapCard.querySelector('div'), schedule, numTeams);
-  container.appendChild(heatmapCard);
+
 }
 
 function renderScheduleTable(container, schedule, divisionName) {

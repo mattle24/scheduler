@@ -1,12 +1,15 @@
+import { startSchedule } from './scheduleSession.js';
 import { WEIGHTS } from './constants.js';
 import { parseTSV } from './parser.js?v=3';
 import { buildSchedule } from './builder.js?v=3';
 import { scoreCrossfieldDivisionClustering, scoreDetails, scoreWeekendOtherDivField } from './scoring.js';
 import { readDivisions, readDivWeightOverrides, syncWeights } from './divisions.js?v=4';
-import { renderMultiDivisionResults, showError, clearError, setLastCSV, formatMultiDivisionCSV } from './render.js?v=2';
+import { showError, clearError } from './render.js?v=3';
 
 function generate() {
   clearError();
+  const hadSchedule = !document.getElementById('editTab').disabled;
+  document.getElementById('editTab').disabled = true;
   document.getElementById('results').classList.add('hidden');
   document.getElementById('resultsTab').disabled = true;
   const statusBox = document.getElementById('statusBox');
@@ -170,13 +173,14 @@ function generate() {
         }
       }
 
-      setLastCSV(formatMultiDivisionCSV(divisionResults));
-      renderMultiDivisionResults(divisionResults, allSlots);
+      startSchedule(divisionResults, allSlots, {...WEIGHTS});
       statusBox.classList.add('hidden');
       document.getElementById('results').classList.remove('hidden');
-      document.dispatchEvent(new Event('scheduler:results-ready'));
+
     } catch (e) {
       statusBox.classList.add('hidden');
+      document.getElementById('resultsTab').disabled = !hadSchedule;
+      document.getElementById('editTab').disabled = !hadSchedule;
       showError(e.message);
     }
   }, 50);
