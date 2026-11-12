@@ -1,6 +1,6 @@
 import { WEIGHTS } from './constants.js';
 import { parseTSV } from './parser.js?v=3';
-import { buildSchedule } from './builder.js';
+import { buildSchedule } from './builder.js?v=3';
 import { scoreCrossfieldDivisionClustering, scoreDetails, scoreWeekendOtherDivField } from './scoring.js';
 import { readDivisions, readDivWeightOverrides, syncWeights } from './divisions.js?v=4';
 import { renderMultiDivisionResults, showError, clearError, setLastCSV, formatMultiDivisionCSV } from './render.js';
@@ -22,6 +22,16 @@ function generate() {
       const allSlots = parseTSV(tsvText);
       const claimedKeys = new Set();
       const divisionResults = [];
+      const MAX_ROUNDS = 3;
+      const maxPasses = divs.length * (1 + MAX_ROUNDS);
+      let completedPasses = 0;
+      const updateProgress = (activity, pct, score) => {
+        const percent = Math.floor(completedPasses / maxPasses * 100);
+        document.getElementById('progressFill').style.width = percent + '%';
+        const activityLabel = pct == null ? `${activity}…` : `${activity}: ${Math.round(pct * 100)}%`;
+        const label = `${completedPasses} of up to ${maxPasses} passes completed (may finish early) — ${activityLabel}`;
+        document.getElementById('progressLabel').textContent = Number.isFinite(score) ? label + ' — quality score: ' + score.toFixed(1) + ' (lower is better)' : label;
+      };
 
       // Strategy 2: Compute slot scarcity — how many divisions can use each slot
       // Higher scarcity = more divisions competing for this slot, so current division
@@ -42,7 +52,7 @@ function generate() {
 
       for (let i = 0; i < divs.length; i++) {
         const div = divs[i];
-        const divLabel = `Division "${div.name}" (${i + 1}/${divs.length})`;
+        const divLabel = `Initial build — division ${i + 1} of ${divs.length}: "${div.name}"`;
 
         // Filter slots to this division's valid fields minus already-claimed slots and excluded days
         const divSlots = allSlots.filter(s =>
@@ -54,16 +64,14 @@ function generate() {
 
         // Phase 1: Build
         statusBox.innerHTML = `
-          <div>${divLabel}: Building schedule...</div>
+          <div>${divLabel}</div>
           <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-          <div class="progress-label" id="progressLabel">0%</div>`;
+          <div class="progress-label" id="progressLabel">0% of maximum passes (may finish early)</div>`;
+        updateProgress('Building candidates', 0, Infinity);
 
-        const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, (pct, score) => {
-          const percent = Math.round(pct * 100);
-          document.getElementById('progressFill').style.width = percent + '%';
-          const label = score === Infinity ? percent + '%' : percent + '% — score: ' + score.toFixed(1);
-          document.getElementById('progressLabel').textContent = label;
-        }, { leagueSplit: div.leagueSplit, slotScarcity, weights: divWeightOverrides });
+        const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, updateProgress,
+          { leagueSplit: div.leagueSplit, slotScarcity, weights: divWeightOverrides });
+        completedPasses++;
 
         const finalSchedule = result.schedule;
         const finalDetails = scoreDetails(finalSchedule, div.numTeams, divSlots);
@@ -86,7 +94,6 @@ function generate() {
       // For single divisions this still helps: each round is an independent
       // greedy+anneal attempt with fresh randomness; best result is kept.
       {
-        const MAX_ROUNDS = 3;
         for (let round = 0; round < MAX_ROUNDS; round++) {
           let improved = false;
 
@@ -95,7 +102,7 @@ function generate() {
           for (let i = 0; i < divisionResults.length; i++) {
             const dr = divisionResults[i];
             const div = dr.division;
-            const divLabel = `Re-optimizing "${div.name}" (round ${round + 1}/${MAX_ROUNDS})`;
+            const divLabel = `Re-optimization round ${round + 1} of up to ${MAX_ROUNDS} — division ${i + 1} of ${divisionResults.length}: "${div.name}"`;
 
             // Release this division's slots
             const releasedKeys = new Set();
@@ -112,7 +119,8 @@ function generate() {
             statusBox.innerHTML = `
               <div>${divLabel}</div>
               <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-              <div class="progress-label" id="progressLabel">0%</div>`;
+              <div class="progress-label" id="progressLabel">0% of maximum passes (may finish early)</div>`;
+            updateProgress('Building candidates', 0, Infinity);
 
             // Collect other divisions' games so the greedy builder can cluster
             const otherDivisionGames = divisionResults
@@ -120,12 +128,9 @@ function generate() {
               .flatMap(r => r.schedule);
 
             const divWeightOverrides = readDivWeightOverrides(mainRows[i]);
-            const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, (pct, score) => {
-              const percent = Math.round(pct * 100);
-              document.getElementById('progressFill').style.width = percent + '%';
-              const label = score === Infinity ? percent + '%' : percent + '% — score: ' + score.toFixed(1);
-              document.getElementById('progressLabel').textContent = label;
-            }, { leagueSplit: div.leagueSplit, slotScarcity, otherDivisionGames, weights: divWeightOverrides });
+            const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, updateProgress,
+              { leagueSplit: div.leagueSplit, slotScarcity, otherDivisionGames, weights: divWeightOverrides });
+            completedPasses++;
 
             const newSchedule = result.schedule;
             const newDetails = scoreDetails(newSchedule, div.numTeams, divSlots);

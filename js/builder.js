@@ -568,8 +568,8 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
 
   const haGames = assignHomeAway(allPairs, numTeams);
   const games = haGames.map(g => ({ home: g.home, away: g.away }));
-  const greedyProgress = onProgress ? (pct, score) => onProgress(pct * 0.7, score) : null;
-  const annealProgress = onProgress ? (pct, score) => onProgress(0.7 + pct * 0.3, score) : null;
+  const greedyProgress = onProgress ? (pct, score) => onProgress('Building candidates', pct, score) : null;
+  const annealProgress = onProgress ? (pct, score) => onProgress('Optimizing schedule', pct, score) : null;
   return tryBuildSchedule(games, slots, numTeams, greedyProgress, { weekendRounds, weekdayGames, slotScarcity, otherDivisionGames }, W).then(result => {
     const preAnnealScore = scoreCandidate(result.schedule, numTeams, slots, W);
     return annealSchedule(result.schedule, numTeams, slots, undefined, W, annealProgress).then(saResult => {
@@ -577,14 +577,17 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
       if (saResult.improved) {
         result.schedule = saResult.schedule;
       }
-      const preSlideScore = scoreCandidate(result.schedule, numTeams, slots, W);
-      result.schedule = consolidateFields(result.schedule, numTeams, slots, W);
-      result.schedule = slideCleanup(result.schedule, numTeams, slots, W);
-      const postSlideScore = scoreCandidate(result.schedule, numTeams, slots, W);
-      console.log(`Consolidate+repack: ${preSlideScore.toFixed(2)} → ${postSlideScore.toFixed(2)}`);
-      rebalanceHomeAway(result.schedule, numTeams, gamesPerTeam);
-      result.details = scoreDetails(result.schedule, numTeams, slots);
-      return result;
+      if (onProgress) onProgress('Cleaning up the schedule', null, saResult.score);
+      return new Promise(resolve => setTimeout(resolve, 0)).then(() => {
+        const preSlideScore = scoreCandidate(result.schedule, numTeams, slots, W);
+        result.schedule = consolidateFields(result.schedule, numTeams, slots, W);
+        result.schedule = slideCleanup(result.schedule, numTeams, slots, W);
+        const postSlideScore = scoreCandidate(result.schedule, numTeams, slots, W);
+        console.log(`Consolidate+repack: ${preSlideScore.toFixed(2)} → ${postSlideScore.toFixed(2)}`);
+        rebalanceHomeAway(result.schedule, numTeams, gamesPerTeam);
+        result.details = scoreDetails(result.schedule, numTeams, slots);
+        return result;
+      });
     });
   });
 }

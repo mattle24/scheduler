@@ -5,7 +5,7 @@ import {
   toggleDivWeights, clearCachedFields, readDivisions
 } from './divisions.js?v=4';
 import { downloadCSV, showError, clearError } from './render.js';
-import { generate } from './generate.js?v=4';
+import { generate } from './generate.js?v=7';
 import { parseTSV } from './parser.js?v=3';
 
 function updateAvailabilityPreview() {
