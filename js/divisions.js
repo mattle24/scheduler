@@ -82,10 +82,17 @@ function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit, excludedDays)
     <td><input type="text" class="div-name" placeholder="e.g. Majors" value="${name || ''}"></td>
     <td><input type="number" class="div-teams" min="2" max="30" value="${numTeams || ''}"></td>
     <td><input type="number" class="div-games" min="1" max="100" value="${gamesPerTeam || ''}"></td>
-    <td style="text-align:center;"><input type="checkbox" class="div-league" ${leagueSplit ? 'checked' : ''}></td>
-    <td><div class="div-excluded-days">${dayCheckboxes}</div></td>
     <td><div class="div-fields"></div></td>
-    <td style="white-space:nowrap;">
+    <td class="division-options">
+      <details class="division-restrictions">
+        <summary>Restrictions</summary>
+        <div class="division-restrictions-content">
+          <label class="league-option"><input type="checkbox" class="div-league" ${leagueSplit ? 'checked' : ''}> Split into two leagues</label>
+          <span class="restriction-label">No games on</span>
+          <div class="div-excluded-days">${dayCheckboxes}</div>
+          <small>Applies to every team in this division.</small>
+        </div>
+      </details>
       <button class="btn-secondary btn-sm btn-div-weights" onclick="toggleDivWeights(this)" title="Adjust scheduling priorities for this division">Priorities</button>
       <button class="btn-remove" onclick="removeDivisionRow(this)" title="Remove division">&times;</button>
     </td>
@@ -95,13 +102,13 @@ function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit, excludedDays)
   const weightsTr = document.createElement('tr');
   weightsTr.className = 'div-weights-row hidden';
   const weightsTd = document.createElement('td');
-  weightsTd.colSpan = 7;
+  weightsTd.colSpan = 5;
 
   const panel = document.createElement('div');
   panel.className = 'div-weights-panel';
   const hint = document.createElement('p');
   hint.className = 'penalty-hint';
-  hint.textContent = 'Adjust these scheduling priorities for this division. Leave a value blank to use the all-division setting. Higher numbers give a preference more weight; 0 removes its penalty.';
+  hint.textContent = 'Adjust these scheduling priorities for this division. Leave a value blank to use the all-division setting. Higher numbers give a preference more weight; 0 means the scheduler will not consider it.';
   panel.appendChild(hint);
   const grid = document.createElement('div');
   grid.className = 'div-weights-grid';
@@ -142,7 +149,7 @@ function removeDivisionRow(btn) {
 function populateFieldCheckboxes(tr) {
   const container = tr.querySelector('.div-fields');
   if (cachedFieldNames.length === 0) {
-    container.innerHTML = '<span class="field-hint">Paste TSV first</span>';
+    container.innerHTML = '<span class="field-hint">Add field availability above</span>';
     return;
   }
   container.innerHTML = '';
@@ -176,7 +183,7 @@ function updateFieldChoices() {
     }
     const container = tr.querySelector('.div-fields');
     if (fields.length === 0) {
-      container.innerHTML = '<span class="field-hint">Paste TSV first</span>';
+      container.innerHTML = '<span class="field-hint">Add field availability above</span>';
       continue;
     }
     container.innerHTML = '';

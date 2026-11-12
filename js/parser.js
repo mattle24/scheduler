@@ -2,7 +2,7 @@ import { parseDate, dateStr, getWeekendGroup, isoWeek, normalizeTime, timeSortKe
 
 function parseTSV(text) {
   const lines = text.trim().split('\n').filter(l => l.trim());
-  if (lines.length < 2) throw new Error('TSV must have a header row and at least one data row');
+  if (lines.length < 2) throw new Error('Add a header row with field names and at least one row with a date.');
 
   const header = lines[0].split('\t').map(h => h.trim().replace(/^["']|["']$/g, ''));
 
@@ -20,7 +20,7 @@ function parseTSV(text) {
     }
   }
   const fields = header.slice(1 + dateColOffset);
-  if (fields.length === 0) throw new Error('No fields found in TSV header');
+  if (fields.length === 0) throw new Error('Add at least one field name after the date column in the first row.');
 
   const slots = [];
   for (let i = 1; i < lines.length; i++) {

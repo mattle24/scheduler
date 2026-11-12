@@ -1,8 +1,8 @@
 import { WEIGHTS } from './constants.js';
-import { parseTSV } from './parser.js?v=2';
+import { parseTSV } from './parser.js?v=3';
 import { buildSchedule } from './builder.js';
 import { scoreCrossfieldDivisionClustering, scoreDetails, scoreWeekendOtherDivField } from './scoring.js';
-import { readDivisions, readDivWeightOverrides, syncWeights } from './divisions.js?v=2';
+import { readDivisions, readDivWeightOverrides, syncWeights } from './divisions.js?v=4';
 import { renderMultiDivisionResults, showError, clearError, setLastCSV, formatMultiDivisionCSV } from './render.js';
 
 function generate() {

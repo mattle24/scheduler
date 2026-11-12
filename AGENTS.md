@@ -82,7 +82,7 @@ Weighted sum of penalties. Current weights in `WEIGHTS` global:
 
 `scoreCandidate` and `weightedScore` (js/generate.js) both use a dynamic loop over WEIGHTS keys.
 
-Users can adjust all weights via collapsible "Penalty Weights" panel in Settings.
+Users can adjust all weights via collapsible "Penalty Weights" panel in Setup.
 
 ## Hard Constraints (enforced in greedy builder + SA)
 

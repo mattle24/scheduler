@@ -3,10 +3,10 @@ import {
   addDivisionRow, removeDivisionRow, buildPenaltyGrid,
   updateFieldChoices, resetWeights, togglePenalties,
   toggleDivWeights, clearCachedFields, readDivisions
-} from './divisions.js?v=2';
+} from './divisions.js?v=4';
 import { downloadCSV, showError, clearError } from './render.js';
-import { generate } from './generate.js?v=2';
-import { parseTSV } from './parser.js?v=2';
+import { generate } from './generate.js?v=4';
+import { parseTSV } from './parser.js?v=3';
 
 function updateAvailabilityPreview() {
   const preview = document.getElementById('availabilityPreview');
@@ -20,7 +20,7 @@ function updateAvailabilityPreview() {
     const fields = [...new Set(slots.map(slot => slot.field))];
     const dates = slots.map(slot => slot.date).sort();
     const formatDate = date => new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: '2-digit', year: 'numeric' });
-    preview.textContent = `Recognized ${slots.length} available ${slots.length === 1 ? 'slot' : 'slots'} from ${formatDate(dates[0])} to ${formatDate(dates[dates.length - 1])}. Fields with availability: ${fields.join(', ')}.`;
+    preview.textContent = `Found ${slots.length} available game ${slots.length === 1 ? 'time' : 'times'} from ${formatDate(dates[0])} to ${formatDate(dates[dates.length - 1])}. Fields with availability: ${fields.join(', ')}.`;
   } catch (err) {
     preview.classList.add('invalid');
     preview.textContent = `Check your availability: ${err.message}`;
@@ -33,9 +33,9 @@ function updateReadiness() {
   let slots;
   try {
     const text = document.getElementById('tsvInput').value;
-    if (!text.trim()) throw new Error('Paste field availability.');
+    if (!text.trim()) throw new Error('Add field availability in step 1.');
     slots = parseTSV(text);
-    if (!slots.length) throw new Error('Add at least one available time slot.');
+    if (!slots.length) { slots = null; throw new Error('Add at least one available game time in step 1.'); }
     items.push([true, 'Field availability is ready.']);
   } catch (err) {
     items.push([false, `Field availability: ${err.message}`]);
@@ -51,15 +51,19 @@ function updateReadiness() {
     const needed = divisions.reduce((sum, div) => sum + Math.ceil(div.numTeams * div.gamesPerTeam / 2), 0);
     const usable = new Set(slots.filter(slot => divisions.some(div => div.fields.includes(slot.field) && !div.excludedDays.includes(slot.dayOfWeek))).map(slot => slot.sortKey)).size;
     items.push([usable >= needed, usable >= needed
-      ? `Enough slots are available overall (${usable} slots for at least ${needed} games). Other scheduling constraints still apply.`
-      : `Not enough slots overall: ${usable} usable slots for at least ${needed} games.`]);
+      ? `There are ${usable} available field times for at least ${needed} games. Other scheduling rules still apply.`
+      : `More field times are needed: ${usable} available for at least ${needed} games.`]);
   } else {
-    items.push([false, 'Complete availability and division details to check overall capacity.']);
+    items.push([false, 'Add field availability and division details to see if there are enough game times.']);
   }
-  document.getElementById('generateButton').disabled = !items.every(([ready]) => ready);
+  const ready = items.every(([complete]) => complete);
+  document.getElementById('generateButton').disabled = !ready;
+  document.getElementById('readinessSummary').textContent = ready
+    ? 'Your setup is ready. Generate a schedule to review the results.'
+    : 'Complete the items below to generate your schedule.';
   list.replaceChildren(...items.map(([ready, message]) => {
     const item = document.createElement('li');
-    item.textContent = `${ready ? '✓' : '○'} ${message}`;
+    item.textContent = `${ready ? 'Complete' : 'To do'}: ${message}`;
     item.className = ready ? 'ready' : 'not-ready';
     return item;
   }));
@@ -168,7 +172,7 @@ function handleFileUpload(e) {
   document.getElementById('fileName').textContent = file.name;
 
   if (file.name.match(/\.xlsx?$/i)) {
-    showError('Excel files are not supported. Please export as TSV or CSV first.');
+    showError('Excel files are not supported. Copy and paste the spreadsheet cells, or save the sheet as a tab-separated text file and upload it.');
     e.target.value = '';
     document.getElementById('fileName').textContent = '';
     return;
