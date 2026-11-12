@@ -380,7 +380,6 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
       games: games.length,
       home: homeGames,
       away: awayGames,
-      haDiff: homeGames - awayGames,
       avgGap,
       btb,
       intraLeague,
@@ -395,14 +394,6 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
   const activeBuckets = teamData.length > 0
     ? bucketNames.filter(b => teamData.some(r => r.bucketCounts.get(b) > 0))
     : [];
-  const bucketStats = new Map();
-  for (const b of activeBuckets) {
-    const vals = teamData.map(r => r.bucketCounts.get(b));
-    const mean = vals.reduce((a, v) => a + v, 0) / vals.length;
-    const variance = vals.reduce((a, v) => a + (v - mean) ** 2, 0) / vals.length;
-    bucketStats.set(b, { mean, stdDev: Math.sqrt(variance) });
-  }
-
   // Sort by league (AL first) then team number
   if (leagueSplit) {
     teamData.sort((a, b) => {
@@ -413,34 +404,30 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
 
   const allFields = [...new Set(schedule.map(g => g.field))].sort();
 
-  let html = '<table><thead><tr>';
-  if (leagueSplit) html += '<th>League</th>';
-  html += '<th>Team</th><th>Games</th><th>Home</th><th>Away</th><th>H/A Diff</th><th>Avg Gap</th><th>Back-to-Back</th>';
-  if (leagueSplit) html += '<th>Intra</th><th>Inter</th>';
-  for (const f of allFields) html += `<th>${f}</th>`;
-  for (const b of activeBuckets) html += `<th>${bucketLabels[b] || b}</th>`;
+  let html = '<div class="team-summary-scroll"><table class="team-summary-table"><thead><tr>';
+  if (leagueSplit) html += '<th rowspan="2" scope="col">League</th>';
+  html += '<th rowspan="2" scope="col">Team</th>';
+  html += `<th colspan="${leagueSplit ? 5 : 3}" scope="colgroup">Games</th>`;
+  html += '<th colspan="2" scope="colgroup">Rest</th>';
+  if (allFields.length) html += `<th colspan="${allFields.length}" scope="colgroup">Fields</th>`;
+  if (activeBuckets.length) html += `<th colspan="${activeBuckets.length}" scope="colgroup">Weekend start times</th>`;
+  html += '</tr><tr><th scope="col">Total</th><th scope="col">Home</th><th scope="col">Away</th>';
+  if (leagueSplit) html += '<th scope="col">Intra</th><th scope="col">Inter</th>';
+  html += '<th class="group-start" scope="col">Days between<br>games (avg)</th><th scope="col">Consecutive-day<br>games</th>';
+  for (const [i, f] of allFields.entries()) html += `<th class="${i === 0 ? 'group-start' : ''}" scope="col">${f}</th>`;
+  for (const [i, b] of activeBuckets.entries()) html += `<th class="${i === 0 ? 'group-start' : ''}" scope="col">${bucketLabels[b] || b}</th>`;
   html += '</tr></thead><tbody>';
   for (const r of teamData) {
     html += '<tr>';
     if (leagueSplit) html += `<td>${r.league}</td>`;
-    html += `<td>${r.team}</td><td>${r.games}</td><td>${r.home}</td><td>${r.away}</td><td>${r.haDiff >= 0 ? '+' : ''}${r.haDiff}</td><td>${r.avgGap}</td><td>${r.btb}</td>`;
+    html += `<td>${r.team}</td><td>${r.games}</td><td>${r.home}</td><td>${r.away}</td>`;
     if (leagueSplit) html += `<td>${r.intraLeague}</td><td>${r.interLeague}</td>`;
-    for (const f of allFields) html += `<td>${r.fieldCounts.get(f) || 0}</td>`;
-    for (const b of activeBuckets) {
-      const val = r.bucketCounts.get(b);
-      const s = bucketStats.get(b);
-      let cls = '';
-      if (s && s.stdDev > 0) {
-        const zscore = Math.abs(val - s.mean) / s.stdDev;
-        if (zscore > 1.5) cls = ' class="bad"';
-        else if (zscore > 0.8) cls = ' class="ok"';
-        else cls = ' class="good"';
-      }
-      html += `<td${cls}>${val}</td>`;
-    }
+    html += `<td class="group-start">${r.avgGap}</td><td>${r.btb}</td>`;
+    for (const [i, f] of allFields.entries()) html += `<td class="${i === 0 ? 'group-start' : ''}">${r.fieldCounts.get(f) || 0}</td>`;
+    for (const [i, b] of activeBuckets.entries()) html += `<td class="${i === 0 ? 'group-start' : ''}">${r.bucketCounts.get(b)}</td>`;
     html += '</tr>';
   }
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
 
   const summaryCard = document.createElement('div');
   summaryCard.className = 'card';
