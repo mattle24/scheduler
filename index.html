@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=14">
+<link rel="stylesheet" href="styles.css?v=16">
 </head>
 <body>
 
@@ -17,15 +17,19 @@
   <p class="subtitle">Create schedules from field availability, review the results, and download them as a CSV.</p>
 </header>
 
-<div class="card" id="settingsCard">
-  <h2 class="section-heading"><span class="material-symbols-outlined section-icon" aria-hidden="true">build</span>Setup</h2>
+<nav class="main-tabs" aria-label="Main navigation">
+  <button type="button" class="main-tab active" id="setupTab" aria-controls="settingsCard" aria-current="page">Setup</button>
+  <button type="button" class="main-tab" id="resultsTab" aria-controls="results" disabled>Results</button>
+</nav>
+
+<div id="settingsCard">
+  <section class="setup-step card" aria-labelledby="availabilityTitle">
+  <h3 id="availabilityTitle" class="section-heading section-label availability-heading"><span class="step-number">1</span>Field availability</h3>
+  <p class="step-description">Add the dates, fields, and times available for games.</p>
   <div class="sample-prompt">
     <button class="btn-secondary btn-sm" onclick="loadSample()">Load sample data</button>
     <span>Try an example with fields and divisions. This replaces your current setup.</span>
   </div>
-  <section class="setup-step" aria-labelledby="availabilityTitle">
-  <h3 id="availabilityTitle" class="section-heading section-label availability-heading"><span class="step-number">1</span>Field availability</h3>
-  <p class="step-description">Add the dates, fields, and times available for games.</p>
   <label for="tsvInput">Paste from a spreadsheet or upload a file</label>
   <p class="availability-hint" id="availabilityHint">Copy the date and field columns, including headers, from your spreadsheet and paste them in the box below, or upload a tab-separated text file. Leave unavailable fields blank; separate multiple times with commas (for example, 9:00am, 1:00pm).</p>
   <div class="file-upload-row">
@@ -37,7 +41,7 @@
   <textarea id="tsvInput" aria-describedby="availabilityHint availabilityPreview" rows="8" placeholder="Date&#9;Field 1&#9;Field 2&#10;4/11/2026&#9;9:00am, 1:00pm&#9;10:00am&#10;4/12/2026&#9;10:00am&#9;"></textarea>
   <div id="availabilityPreview" class="availability-preview hidden" role="status" aria-live="polite"></div>
   </section>
-  <section class="setup-step" aria-labelledby="divisionsTitle">
+  <section class="setup-step card" aria-labelledby="divisionsTitle">
     <h3 id="divisionsTitle" class="section-heading section-label"><span class="step-number">2</span>Divisions</h3>
     <p class="step-description">Add each division and choose the fields and days it can use.</p>
     <div class="division-table-scroll" role="region" aria-label="Division settings" tabindex="0">
@@ -54,7 +58,7 @@
     </div>
     <button class="btn-secondary btn-sm" onclick="addDivisionRow()">+ Add Division</button>
   </section>
-  <div class="penalty-section">
+  <div class="penalty-section card">
     <div class="penalty-header" onclick="togglePenalties()">
       <span class="disclosure-arrow">&#9654;</span> <span class="material-symbols-outlined section-icon" aria-hidden="true">tune</span> Scheduling priorities (all divisions)
     </div>
@@ -73,7 +77,7 @@
       </div>
     </div>
   </div>
-  <section class="setup-step generation-step" aria-labelledby="generationTitle">
+  <section class="setup-step generation-step card" aria-labelledby="generationTitle">
   <div class="readiness">
     <h3 id="generationTitle" class="section-heading section-label"><span class="step-number">3</span>Generate schedule</h3>
     <p class="step-description">Check your setup, then generate your schedule.</p>
@@ -87,7 +91,7 @@
     <button class="btn-link" onclick="clearInputs()">Clear all inputs</button>
   </div>
   </section>
-  <div class="explainer-section">
+  <div class="explainer-section card">
     <div class="penalty-header" onclick="this.classList.toggle('open'); document.getElementById('explainerBody').classList.toggle('open')">
       <span class="disclosure-arrow">&#9654;</span> <span class="material-symbols-outlined section-icon" aria-hidden="true">help</span> How does the scheduler work?
     </div>
@@ -112,6 +116,6 @@
 
 <div id="results" class="hidden"></div>
 
-<script type="module" src="js/ui.js?v=11"></script>
+<script type="module" src="js/ui.js?v=13"></script>
 </body>
 </html>

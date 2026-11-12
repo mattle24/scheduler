@@ -4,8 +4,8 @@ import {
   updateFieldChoices, resetWeights, togglePenalties,
   toggleDivWeights, clearCachedFields, readDivisions
 } from './divisions.js?v=4';
-import { downloadCSV, showError, clearError } from './render.js';
-import { generate } from './generate.js?v=7';
+import { downloadCSV, showError, clearError } from './render.js?v=2';
+import { generate } from './generate.js?v=8';
 import { parseTSV } from './parser.js?v=3';
 
 function updateAvailabilityPreview() {
@@ -119,9 +119,24 @@ function clearInputs() {
 
   // Clear results and errors
   document.getElementById('results').classList.add('hidden');
+  document.getElementById('resultsTab').disabled = true;
+  showView('setup');
   clearError();
 
   localStorage.removeItem('scheduler_state');
+}
+
+function showView(view) {
+  if (view === 'results' && document.getElementById('resultsTab').disabled) return;
+  const showingResults = view === 'results';
+  document.getElementById('settingsCard').classList.toggle('hidden', showingResults);
+  document.getElementById('results').classList.toggle('hidden', !showingResults);
+  for (const [tab, active] of [[document.getElementById('setupTab'), !showingResults], [document.getElementById('resultsTab'), showingResults]]) {
+    tab.classList.toggle('active', active);
+    if (active) tab.setAttribute('aria-current', 'page');
+    else tab.removeAttribute('aria-current');
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function loadSample() {
@@ -201,6 +216,12 @@ window.toggleDivWeights = toggleDivWeights;
 window.downloadCSV = downloadCSV;
 
 document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('setupTab').addEventListener('click', () => showView('setup'));
+  document.getElementById('resultsTab').addEventListener('click', () => showView('results'));
+  document.addEventListener('scheduler:results-ready', () => {
+    document.getElementById('resultsTab').disabled = false;
+    showView('results');
+  });
   buildPenaltyGrid();
 
   // Restore saved state or start with one empty division row

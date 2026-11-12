@@ -10,7 +10,7 @@ function renderMultiDivisionResults(divisionResults, allSlots) {
   const container = document.getElementById('results');
   container.innerHTML = '';
 
-  // Floating TOC — fields + divisions
+  // Results navigation — fields + divisions
   const fieldNames = [...new Set((allSlots || []).map(s => s.field))].sort();
   {
     const toc = document.createElement('nav');
@@ -29,14 +29,18 @@ function renderMultiDivisionResults(divisionResults, allSlots) {
 
   const schedulesSection = document.createElement('section');
   schedulesSection.id = 'division-schedules';
+  schedulesSection.className = 'card result-group';
   const schedulesHeading = document.createElement('h2');
   schedulesHeading.textContent = 'Division Schedules';
-  schedulesSection.appendChild(schedulesHeading);
+  const schedulesIntro = document.createElement('div');
+  schedulesIntro.className = 'results-section-intro';
+  schedulesIntro.appendChild(schedulesHeading);
 
   const actions = document.createElement('div');
   actions.className = 'actions';
   actions.innerHTML = '<button class="btn-secondary btn-sm download-csv" onclick="downloadCSV()"><span class="material-symbols-outlined" aria-hidden="true">download</span>Download CSV</button>';
-  schedulesSection.appendChild(actions);
+  schedulesIntro.appendChild(actions);
+  schedulesSection.appendChild(schedulesIntro);
   for (const dr of divisionResults) {
     renderScheduleTable(schedulesSection, dr.schedule, dr.division.name);
   }
@@ -45,11 +49,14 @@ function renderMultiDivisionResults(divisionResults, allSlots) {
   for (let i = 0; i < divisionResults.length; i++) {
     const dr = divisionResults[i];
     const section = document.createElement('div');
-    section.className = 'division-section';
+    section.className = 'division-section card result-group';
     section.id = `division-${i}`;
     const heading = document.createElement('h2');
     heading.textContent = `${dr.division.name} Deepdive`;
-    section.appendChild(heading);
+    const intro = document.createElement('div');
+    intro.className = 'results-section-intro';
+    intro.appendChild(heading);
+    section.appendChild(intro);
 
     renderDivisionBlock(section, dr.schedule, dr.details, dr.division.numTeams, dr.division.leagueSplit);
     container.appendChild(section);
@@ -59,6 +66,7 @@ function renderMultiDivisionResults(divisionResults, allSlots) {
   if (allSlots && allSlots.length > 0) {
     const fields = document.createElement('details');
     fields.id = 'fields';
+    fields.className = 'card fields-section';
     fields.open = true;
     const heading = document.createElement('summary');
     heading.className = 'field-schedules-heading';
@@ -114,7 +122,9 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
   dateInput.min = firstWeek;
   dateInput.max = addDays(lastWeek, 6);
   datePicker.append(dateLabel, dateInput);
-  container.appendChild(datePicker);
+  const fieldControls = document.createElement('div');
+  fieldControls.className = 'field-controls';
+  fieldControls.appendChild(datePicker);
   const legend = document.createElement('div');
   legend.className = 'field-legend';
   legend.setAttribute('aria-label', 'Field grid legend');
@@ -122,7 +132,8 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
     '<span><i class="field-legend-swatch field-legend-occupied" aria-hidden="true"></i>Used by another division</span>' +
     '<span><i class="field-legend-swatch field-legend-unavailable" aria-hidden="true">×</i>Field unavailable</span>' +
     '<span><b class="field-legend-weekend">Underlined date</b> Weekend</span>';
-  container.appendChild(legend);
+  fieldControls.appendChild(legend);
+  container.appendChild(fieldControls);
   const fieldSections = document.createElement('div');
   container.appendChild(fieldSections);
   const tooltip = document.createElement('div');
@@ -187,7 +198,7 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
 
     for (const field of fieldNames) {
       const section = document.createElement('div');
-      section.className = 'division-section field-section';
+      section.className = 'division-section field-section card';
       section.id = `field-${field.replace(/\s+/g, '-')}`;
       const heading = document.createElement('h3');
       heading.textContent = field;
@@ -200,8 +211,6 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
       const totalSlots = available.size;
       const usedSlots = [...available].filter(k => gameMap.has(k)).length;
 
-      const card = document.createElement('div');
-      card.className = 'card';
       const localNavigation = document.createElement('div');
       localNavigation.className = 'field-week-navigation field-week-navigation-local';
       localNavigation.setAttribute('aria-label', `${field} schedule week`);
@@ -287,8 +296,9 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
       }
 
       html += '</tbody></table></div>';
-      card.innerHTML = html;
-      section.appendChild(card);
+      const grid = document.createElement('div');
+      grid.innerHTML = html;
+      section.appendChild(grid);
       fieldSections.appendChild(section);
     }
   }

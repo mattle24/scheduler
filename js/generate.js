@@ -3,11 +3,12 @@ import { parseTSV } from './parser.js?v=3';
 import { buildSchedule } from './builder.js?v=3';
 import { scoreCrossfieldDivisionClustering, scoreDetails, scoreWeekendOtherDivField } from './scoring.js';
 import { readDivisions, readDivWeightOverrides, syncWeights } from './divisions.js?v=4';
-import { renderMultiDivisionResults, showError, clearError, setLastCSV, formatMultiDivisionCSV } from './render.js';
+import { renderMultiDivisionResults, showError, clearError, setLastCSV, formatMultiDivisionCSV } from './render.js?v=2';
 
 function generate() {
   clearError();
   document.getElementById('results').classList.add('hidden');
+  document.getElementById('resultsTab').disabled = true;
   const statusBox = document.getElementById('statusBox');
   statusBox.classList.remove('hidden');
   statusBox.innerHTML = 'Preparing...';
@@ -169,6 +170,7 @@ function generate() {
       renderMultiDivisionResults(divisionResults, allSlots);
       statusBox.classList.add('hidden');
       document.getElementById('results').classList.remove('hidden');
+      document.dispatchEvent(new Event('scheduler:results-ready'));
     } catch (e) {
       statusBox.classList.add('hidden');
       showError(e.message);
