@@ -1,5 +1,5 @@
 import { DAYS } from './constants.js';
-import { daysBetween, slotBucket, timeSortKey, formatTimeDisplay } from './utils.js';
+import { daysBetween, slotBucket, timeSortKey, formatTimeDisplay, isoWeek, addDays } from './utils.js';
 
 let lastCSV = '';
 function setLastCSV(csv) { lastCSV = csv; }
@@ -52,6 +52,11 @@ function renderMultiDivisionResults(divisionResults, allSlots) {
 }
 
 function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
+  const fieldHeading = document.createElement('h2');
+  fieldHeading.className = 'field-schedules-heading';
+  fieldHeading.textContent = 'Field Schedules';
+  container.appendChild(fieldHeading);
+
   // Build the set of all (date, time) columns across all fields, sorted chronologically
   // and a lookup: field -> Set of "date|time" keys that are available
   const fieldSlotKeys = new Map(); // field -> Set of "date|time"
@@ -65,13 +70,12 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
   for (const dr of divisionResults) {
     for (const g of dr.schedule) {
       if (!fieldGameDiv.has(g.field)) fieldGameDiv.set(g.field, new Map());
-      fieldGameDiv.get(g.field).set(g.date + '|' + g.time, dr.division.name);
+      fieldGameDiv.get(g.field).set(g.date + '|' + g.time, { division: dr.division.name, game: g });
     }
   }
 
-  // Division names + colors
+  // Division names
   const divNames = divisionResults.map(dr => dr.division.name);
-  const divColors = ['#2d5a27', '#2563eb', '#9333ea', '#dc2626', '#ea580c', '#0891b2', '#4f46e5', '#be185d'];
 
   // Precompute columns (date+time pairs that exist on any field) — shared across all field sections
   const allDates = [...new Set(allSlots.map(s => s.date))].sort();
@@ -83,97 +87,227 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
       if (existingDateTimes.has(date + '|' + time)) columns.push({ date, time, dateTime: date + '|' + time });
     }
   }
-  const colSpanByDate = new Map();
-  for (const col of columns) colSpanByDate.set(col.date, (colSpanByDate.get(col.date) || 0) + 1);
+  const firstWeek = isoWeek(allDates[0]);
+  const lastWeek = isoWeek(allDates[allDates.length - 1]);
+  let selectedWeek = firstWeek;
+  const datePicker = document.createElement('div');
+  datePicker.className = 'field-date-picker';
+  const dateLabel = document.createElement('label');
+  dateLabel.htmlFor = 'field-jump-date';
+  dateLabel.textContent = 'Jump to date';
+  const dateInput = document.createElement('input');
+  dateInput.type = 'date';
+  dateInput.id = 'field-jump-date';
+  dateInput.min = firstWeek;
+  dateInput.max = addDays(lastWeek, 6);
+  datePicker.append(dateLabel, dateInput);
+  container.appendChild(datePicker);
+  const legend = document.createElement('div');
+  legend.className = 'field-legend';
+  legend.setAttribute('aria-label', 'Field grid legend');
+  legend.innerHTML = '<span><i class="field-legend-swatch field-legend-empty" aria-hidden="true"></i>Open field time</span>' +
+    '<span><i class="field-legend-swatch field-legend-occupied" aria-hidden="true"></i>Used by another division</span>' +
+    '<span><i class="field-legend-swatch field-legend-unavailable" aria-hidden="true">×</i>Field unavailable</span>' +
+    '<span><b class="field-legend-weekend">Underlined date</b> Weekend</span>';
+  container.appendChild(legend);
+  const fieldSections = document.createElement('div');
+  container.appendChild(fieldSections);
+  const tooltip = document.createElement('div');
+  tooltip.className = 'field-game-tooltip';
+  tooltip.id = 'field-game-tooltip';
+  tooltip.setAttribute('role', 'tooltip');
+  tooltip.hidden = true;
+  container.appendChild(tooltip);
+  let activeButton = null;
+  function hideTooltip() {
+    tooltip.hidden = true;
+    if (activeButton) activeButton.removeAttribute('aria-describedby');
+    activeButton = null;
+  }
+  function showTooltip(button) {
+    if (activeButton && activeButton !== button) activeButton.removeAttribute('aria-describedby');
+    activeButton = button;
+    button.setAttribute('aria-describedby', tooltip.id);
+    tooltip.textContent = button.dataset.gameDetails;
+    tooltip.hidden = false;
+    const rect = button.getBoundingClientRect();
+    const box = tooltip.getBoundingClientRect();
+    tooltip.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - box.width - 8))}px`;
+    tooltip.style.top = `${rect.top >= box.height + 8 ? rect.top - box.height - 4 : rect.bottom + 4}px`;
+  }
+  fieldSections.addEventListener('pointerover', e => {
+    const button = e.target.closest('.field-game-button');
+    if (button && e.pointerType !== 'touch') showTooltip(button);
+  });
+  fieldSections.addEventListener('pointerout', e => {
+    if (e.target.closest('.field-game-button') && !e.target.closest('.field-game-button').contains(e.relatedTarget) && document.activeElement !== activeButton) hideTooltip();
+  });
+  fieldSections.addEventListener('focusin', e => {
+    if (e.target.matches('.field-game-button')) showTooltip(e.target);
+  });
+  fieldSections.addEventListener('focusout', e => {
+    if (e.target.matches('.field-game-button')) hideTooltip();
+  });
+  fieldSections.addEventListener('click', e => {
+    const button = e.target.closest('.field-game-button');
+    if (button) showTooltip(button);
+  });
+  fieldSections.addEventListener('keydown', e => {
+    if (e.key === 'Escape') hideTooltip();
+  });
+  container.addEventListener('pointerdown', e => {
+    if (!e.target.closest('.field-game-button')) hideTooltip();
+  });
 
-  for (const field of fieldNames) {
-    const section = document.createElement('div');
-    section.className = 'division-section';
-    section.id = `field-${field.replace(/\s+/g, '-')}`;
-    const heading = document.createElement('h2');
-    heading.textContent = field;
-    section.appendChild(heading);
+  function renderWeek() {
+    hideTooltip();
+    const end = addDays(selectedWeek, 6);
+    const formatDate = date => new Date(date + 'T00:00:00').toLocaleDateString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric'
+    });
+    const weekLabel = `${formatDate(selectedWeek)} – ${formatDate(end)}`;
+    dateInput.value = selectedWeek;
+    fieldSections.innerHTML = '';
+    const weekColumns = columns.filter(col => col.date >= selectedWeek && col.date <= end);
+    const colSpanByDate = new Map();
+    for (const col of weekColumns) colSpanByDate.set(col.date, (colSpanByDate.get(col.date) || 0) + 1);
 
-    const available = fieldSlotKeys.get(field) || new Set();
-    const gameMap = fieldGameDiv.get(field) || new Map();
+    for (const field of fieldNames) {
+      const section = document.createElement('div');
+      section.className = 'division-section field-section';
+      section.id = `field-${field.replace(/\s+/g, '-')}`;
+      const heading = document.createElement('h3');
+      heading.textContent = field;
+      section.appendChild(heading);
 
-    // Utilization stats
-    const totalSlots = available.size;
-    const usedSlots = [...available].filter(k => gameMap.has(k)).length;
+      const available = fieldSlotKeys.get(field) || new Set();
+      const gameMap = fieldGameDiv.get(field) || new Map();
 
-    const card = document.createElement('div');
-    card.className = 'card';
+      // Utilization stats
+      const totalSlots = available.size;
+      const usedSlots = [...available].filter(k => gameMap.has(k)).length;
 
-    let html = `<div class="field-stats">${usedSlots} / ${totalSlots} slots used</div>`;
-    html += '<div style="overflow-x:auto;">';
-    html += '<table class="heatmap-table field-heatmap"><thead>';
+      const card = document.createElement('div');
+      card.className = 'card';
+      const localNavigation = document.createElement('div');
+      localNavigation.className = 'field-week-navigation field-week-navigation-local';
+      localNavigation.setAttribute('aria-label', `${field} schedule week`);
+      const localPrevious = document.createElement('button');
+      localPrevious.type = 'button';
+      localPrevious.className = 'btn-secondary btn-sm';
+      localPrevious.textContent = 'Previous week';
+      localPrevious.disabled = selectedWeek === firstWeek;
+      const localLabel = document.createElement('strong');
+      localLabel.textContent = weekLabel;
+      const localNext = document.createElement('button');
+      localNext.type = 'button';
+      localNext.className = 'btn-secondary btn-sm';
+      localNext.textContent = 'Next week';
+      localNext.disabled = selectedWeek === lastWeek;
+      localPrevious.addEventListener('click', () => changeWeek(-7, field, 'previous'));
+      localNext.addEventListener('click', () => changeWeek(7, field, 'next'));
+      localNavigation.append(localPrevious, localLabel, localNext);
+      section.appendChild(localNavigation);
 
-    // Date header row
-    html += '<tr><th></th>';
-    let prevDate = '';
-    for (const col of columns) {
-      if (col.date !== prevDate) {
-        const span = colSpanByDate.get(col.date);
-        const d = new Date(col.date + 'T00:00:00');
-        const dow = d.getDay();
-        const isWeekend = dow === 0 || dow === 6;
-        const label = `${d.getMonth() + 1}/${d.getDate()}`;
-        html += `<th colspan="${span}" class="date-header field-date-header${isWeekend ? ' weekend' : ''}">${label}</th>`;
-        prevDate = col.date;
-      }
-    }
-    html += '</tr>';
+      let html = `<div class="field-stats">Season total: ${usedSlots} / ${totalSlots} available field times used</div>`;
+      if (weekColumns.length === 0) html += '<p class="field-week-empty">No available field times this week.</p>';
+      html += '<div style="overflow-x:auto;">';
+      html += '<table class="heatmap-table field-heatmap"><thead>';
 
-    // Time header row
-    html += '<tr><th></th>';
-    for (const col of columns) {
-      html += `<th class="time-header">${formatTimeDisplay(col.time)}</th>`;
-    }
-    html += '</tr></thead><tbody>';
-
-    // One row per division
-    for (let di = 0; di < divNames.length; di++) {
-      const divName = divNames[di];
-      const color = divColors[di % divColors.length];
-      html += `<tr><td class="team-name">${divName}</td>`;
-      for (const col of columns) {
-        const key = col.dateTime;
-        const isAvailable = available.has(key);
-        const gameDiv = gameMap.get(key);
-        let cls, style;
-        if (!isAvailable) {
-          cls = 'field-unavail';
-          style = '';
-        } else if (gameDiv === divName) {
-          cls = 'field-used';
-          style = ` style="background:${color}"`;
-        } else {
-          cls = 'field-free';
-          style = '';
+      // Date header row
+      html += '<tr><th></th>';
+      let prevDate = '';
+      for (const col of weekColumns) {
+        if (col.date !== prevDate) {
+          const span = colSpanByDate.get(col.date);
+          const d = new Date(col.date + 'T00:00:00');
+          const dow = d.getDay();
+          const isWeekend = dow === 0 || dow === 6;
+          const label = `${d.getMonth() + 1}/${d.getDate()}`;
+          html += `<th colspan="${span}" class="date-header field-date-header date-start${isWeekend ? ' weekend' : ''}">${label}</th>`;
+          prevDate = col.date;
         }
-        html += `<td class="heatmap-cell ${cls}"${style}></td>`;
       }
       html += '</tr>';
-    }
 
-    html += '</tbody></table></div>';
-    card.innerHTML = `<h3>Field Heatmap</h3>` + html;
-    section.appendChild(card);
-    container.appendChild(section);
+      // Time header row
+      html += '<tr><th></th>';
+      for (let i = 0; i < weekColumns.length; i++) {
+        const col = weekColumns[i];
+        const dateStart = i === 0 || col.date !== weekColumns[i - 1].date;
+        html += `<th class="time-header${dateStart ? ' date-start' : ''}">${formatTimeDisplay(col.time).replace(/^0/, '').replace(':00 ', ' ')}</th>`;
+      }
+      html += '</tr></thead><tbody>';
+
+      // One row per division
+      for (let di = 0; di < divNames.length; di++) {
+        const divName = divNames[di];
+        html += `<tr><td class="team-name">${divName}</td>`;
+        for (let i = 0; i < weekColumns.length; i++) {
+          const col = weekColumns[i];
+          const dateStart = i === 0 || col.date !== weekColumns[i - 1].date;
+          const key = col.dateTime;
+          const isAvailable = available.has(key);
+          const gameEntry = gameMap.get(key);
+          let cls, style;
+          if (!isAvailable) {
+            cls = 'field-unavail';
+            style = '';
+          } else if (gameEntry && gameEntry.division === divName) {
+            cls = 'field-used';
+            style = '';
+          } else {
+            cls = gameEntry ? 'field-occupied' : 'field-free';
+            style = '';
+          }
+          let content = cls === 'field-unavail' ? '<span aria-label="Field unavailable">×</span>' : '';
+          if (cls === 'field-used') {
+            const game = gameEntry.game;
+            const date = new Date(col.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+            const details = `${divName}: ${game.away + 1}B vs ${game.home + 1}B · ${date} · ${formatTimeDisplay(col.time).replace(/^0/, '').replace(':00 ', ' ')}`;
+            const escaped = details.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            content = `<button type="button" class="field-game-button" aria-label="${escaped}" data-game-details="${escaped}"></button>`;
+          }
+          html += `<td class="heatmap-cell ${cls}${dateStart ? ' date-start' : ''}"${style}>${content}</td>`;
+        }
+        html += '</tr>';
+      }
+
+      html += '</tbody></table></div>';
+      card.innerHTML = html;
+      section.appendChild(card);
+      fieldSections.appendChild(section);
+    }
   }
+  function changeWeek(days, field, direction) {
+    selectedWeek = addDays(selectedWeek, days);
+    renderWeek();
+    if (field) {
+      const section = [...fieldSections.children].find(el => el.id === `field-${field.replace(/\s+/g, '-')}`);
+      const buttons = section.querySelectorAll('.field-week-navigation-local button');
+      const target = buttons[direction === 'previous' ? 0 : 1];
+      (target.disabled ? buttons[direction === 'previous' ? 1 : 0] : target).focus({ preventScroll: true });
+    }
+  }
+  dateInput.addEventListener('change', () => {
+    if (!dateInput.value || !dateInput.validity.valid) return;
+    selectedWeek = isoWeek(dateInput.value);
+    renderWeek();
+  });
+  renderWeek();
 }
 
 function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit) {
   // Score cards
   const cards = [
     { label: 'Weekend Sit-outs', value: details.weekendSitouts, min: 0,
-      tip: 'Number of times a team has zero games on a weekend that has available slots. Lower is better.' },
+      tip: 'Number of times a team has zero games on a weekend that has available field times. Lower is better.' },
     { label: 'Weekend Back-to-Back', value: details.weekendDoubleHeaders, min: details.minWeekendDH,
       tip: 'Number of times a team plays 2+ games in the same Sat-Sun weekend. Each extra game beyond 1 counts as 1.' },
     { label: 'Early Season Density', value: details.earlySeasonDensity, min: 0,
       tip: 'Pairs of games within 2 days of each other in the first 7 days of the season.' },
-    { label: 'Weekend B2B Timeslot', value: details.weekendBTBTimePenalty, min: 0,
-      tip: 'Cases where 2nd day of a Fri/Sat or Sat/Sun back-to-back has an earlier timeslot than the 1st day.' },
+    { label: 'Weekend B2B Field Time', value: details.weekendBTBTimePenalty, min: 0,
+      tip: 'Cases where 2nd day of a Fri/Sat or Sat/Sun back-to-back has an earlier field time than the 1st day.' },
     { label: 'Sat/Sun Balance', value: details.satSunBalance, min: 0,
       tip: 'How uneven Saturday vs Sunday game counts are per team. 0 = perfectly balanced.' },
     { label: 'Back-to-Back Balance', value: details.btbBalance, min: 0,
@@ -338,7 +472,7 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
   // Heatmap
   const heatmapCard = document.createElement('div');
   heatmapCard.className = 'card';
-  heatmapCard.innerHTML = '<h2>Team Heatmap</h2><div style="overflow-x:auto;"></div>';
+  heatmapCard.innerHTML = '<h2>Team Schedule</h2><div style="overflow-x:auto;"></div>';
   renderHeatmapInto(heatmapCard.querySelector('div'), schedule, numTeams);
   container.appendChild(heatmapCard);
 }

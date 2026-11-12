@@ -16,7 +16,7 @@ function updateAvailabilityPreview() {
   if (!text.trim()) { preview.textContent = ''; return; }
   try {
     const slots = parseTSV(text);
-    if (!slots.length) throw new Error('No available time slots found.');
+    if (!slots.length) throw new Error('No available field times found.');
     const fields = [...new Set(slots.map(slot => slot.field))];
     const dates = slots.map(slot => slot.date).sort();
     const formatDate = date => new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: '2-digit', year: 'numeric' });

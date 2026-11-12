@@ -7,7 +7,7 @@ import { annealSchedule, consolidateFields, slideCleanup } from './optimizer.js'
 function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchups, weights) {
   const totalGames = games.length;
   if (slots.length < totalGames) {
-    throw new Error(`Not enough slots: need ${totalGames} games but only ${slots.length} slots available.`);
+    throw new Error(`Not enough available field times: need ${totalGames} games but only ${slots.length} field times are available.`);
   }
 
   // Scarcity map: sortKey → number of other divisions that also need this slot
@@ -512,17 +512,17 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
           if (lastFailureInfo) {
             const f = lastFailureInfo;
             if (f.phase === 'weekend') {
-              msg += ` No slots left on weekend ${f.weekendGroup} to place game ${f.stuckGame} (${f.totalWeekendSlots} slots on that weekend, all taken).`;
-              msg += ' Try adding more weekend slots or reducing games per team.';
+              msg += ` No available field times left on weekend ${f.weekendGroup} to place game ${f.stuckGame} (${f.totalWeekendSlots} available field times on that weekend, all taken).`;
+              msg += ' Try adding more available weekend field times or reducing games per team.';
             } else {
               msg += ` Stuck placing weekday game ${f.stuckGame} (${f.remainingGames} games left).`;
-              msg += ` ${f.availableSlots} of ${f.totalWeekdaySlots} weekday slots were untaken,`;
+              msg += ` ${f.availableSlots} of ${f.totalWeekdaySlots} available weekday field times were untaken,`;
               msg += ` but all were blocked: ${f.reasons.sameDay} by same-day conflict,`;
               msg += ` ${f.reasons.threeInFour} by 3-games-in-4-days limit,`;
               msg += ` ${f.reasons.weekdayPerWeek} by 1-weekday-per-week limit.`;
             }
           } else {
-            msg += ' Try adding more slots or reducing games per team.';
+            msg += ' Try adding more available field times or reducing games per team.';
           }
           reject(new Error(msg));
         } else {

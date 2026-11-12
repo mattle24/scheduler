@@ -100,7 +100,6 @@ th { background: #f3f4f6; font-weight: 600; font-size: .8rem; text-transform: up
 /* Field heatmap */
 .field-heatmap th.field-date-header { writing-mode: horizontal-tb; transform: none; font-size: .7rem; }
 .field-heatmap th.time-header { font-size: .6rem; font-weight: 400; white-space: nowrap; }
-.heatmap-cell.field-used { border-color: #000; }
 .heatmap-cell.field-free { background: #fff; }
 .heatmap-cell.field-unavail { background: #bbb; }
 .field-stats { font-size: .85rem; color: #666; margin-bottom: .5rem; }
@@ -332,3 +331,41 @@ h1 { letter-spacing: -.02em; }
 
 .sample-prompt { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .75rem; margin-top: 1rem; }
 .sample-prompt span { color: var(--muted); font-size: .8rem; }
+
+.field-week-navigation { display: flex; align-items: center; justify-content: center; gap: .75rem; flex-wrap: wrap; margin: 1rem 0; }
+.field-week-navigation strong { font-size: .9rem; text-align: center; }
+.field-week-navigation button:disabled { opacity: .5; cursor: default; }
+.field-week-empty { color: var(--muted); font-size: .85rem; margin-bottom: .5rem; }
+.field-legend { display: flex; justify-content: center; gap: .5rem 1.25rem; flex-wrap: wrap; color: var(--muted); font-size: .8rem; margin-bottom: 1rem; }
+.field-legend span { display: inline-flex; align-items: center; gap: .35rem; }
+.field-legend-swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid var(--border); }
+.field-legend-empty { background: var(--card-bg); }
+.field-legend-unavailable { background: #bbb; }
+.field-legend-weekend { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+@media (prefers-color-scheme: dark) {
+  .field-legend-unavailable { background: #374151; }
+}
+
+.field-heatmap th.date-header.weekend { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.field-heatmap .date-start { border-left: 2px solid #9ca3af; }
+.field-heatmap td.field-used { padding: 0; }
+.field-game-button { display: block; width: 100%; min-width: 18px; min-height: 18px; padding: 0; background: transparent; border: 0; border-radius: 0; }
+.field-game-button:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
+.field-game-tooltip { position: fixed; z-index: 100; max-width: min(280px, calc(100vw - 16px)); padding: .5rem .65rem; border-radius: 4px; background: #1f2937; color: #fff; font-size: .8rem; box-shadow: 0 2px 8px rgba(0,0,0,.25); pointer-events: none; }
+.field-schedules-heading { font-size: 1.5rem; margin: 1.5rem 0 .75rem; }
+.field-section > h3 { font-size: 1.15rem; margin-bottom: .75rem; padding-left: .6rem; border-left: 4px solid var(--primary); }
+
+.field-heatmap .field-occupied, .field-legend-occupied { background: #dfe2e5; }
+.field-heatmap .field-unavail, .field-legend-unavailable { background: var(--card-bg); color: #c98484; font-weight: 700; }
+.field-legend-unavailable { display: inline-flex; align-items: center; justify-content: center; font-style: normal; }
+.field-week-navigation-local { justify-content: flex-start; margin: 0 0 .75rem; }
+.field-date-picker { display: flex; align-items: center; gap: .6rem; margin: .75rem 0 1rem; }
+.field-date-picker label { margin: 0; }
+.field-date-picker input { padding: .35rem .5rem; border: 1px solid var(--border); border-radius: 4px; background: var(--card-bg); color: inherit; font: inherit; }
+
+.field-date-picker { display: inline-flex; padding: .5rem .75rem; gap: .75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card-bg); box-shadow: var(--shadow); }
+.field-date-picker label { color: var(--muted); font-size: .8rem; }
+.field-date-picker input { border: 0; border-left: 1px solid var(--border); border-radius: 0; padding: .15rem 0 .15rem .75rem; font-size: .9rem; font-weight: 600; }
+.field-date-picker input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.field-heatmap .field-used { background: #000; }
