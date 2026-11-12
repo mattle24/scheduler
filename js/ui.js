@@ -2,10 +2,68 @@ import { loadState, debouncedSave } from './state.js';
 import {
   addDivisionRow, removeDivisionRow, buildPenaltyGrid,
   updateFieldChoices, resetWeights, togglePenalties,
-  toggleDivWeights, clearCachedFields
-} from './divisions.js';
+  toggleDivWeights, clearCachedFields, readDivisions
+} from './divisions.js?v=2';
 import { downloadCSV, showError, clearError } from './render.js';
-import { generate } from './generate.js';
+import { generate } from './generate.js?v=2';
+import { parseTSV } from './parser.js?v=2';
+
+function updateAvailabilityPreview() {
+  const preview = document.getElementById('availabilityPreview');
+  const text = document.getElementById('tsvInput').value;
+  preview.classList.toggle('hidden', !text.trim());
+  preview.classList.remove('invalid');
+  if (!text.trim()) { preview.textContent = ''; return; }
+  try {
+    const slots = parseTSV(text);
+    if (!slots.length) throw new Error('No available time slots found.');
+    const fields = [...new Set(slots.map(slot => slot.field))];
+    const dates = slots.map(slot => slot.date).sort();
+    const formatDate = date => new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: '2-digit', year: 'numeric' });
+    preview.textContent = `Recognized ${slots.length} available ${slots.length === 1 ? 'slot' : 'slots'} from ${formatDate(dates[0])} to ${formatDate(dates[dates.length - 1])}. Fields with availability: ${fields.join(', ')}.`;
+  } catch (err) {
+    preview.classList.add('invalid');
+    preview.textContent = `Check your availability: ${err.message}`;
+  }
+}
+
+function updateReadiness() {
+  const list = document.getElementById('readinessList');
+  const items = [];
+  let slots;
+  try {
+    const text = document.getElementById('tsvInput').value;
+    if (!text.trim()) throw new Error('Paste field availability.');
+    slots = parseTSV(text);
+    if (!slots.length) throw new Error('Add at least one available time slot.');
+    items.push([true, 'Field availability is ready.']);
+  } catch (err) {
+    items.push([false, `Field availability: ${err.message}`]);
+  }
+  let divisions;
+  try {
+    divisions = readDivisions();
+    items.push([true, 'Division details and fields are complete.']);
+  } catch (err) {
+    items.push([false, err.message + (slots ? '' : ' (Fields are available after adding availability.)')]);
+  }
+  if (slots && divisions) {
+    const needed = divisions.reduce((sum, div) => sum + Math.ceil(div.numTeams * div.gamesPerTeam / 2), 0);
+    const usable = new Set(slots.filter(slot => divisions.some(div => div.fields.includes(slot.field) && !div.excludedDays.includes(slot.dayOfWeek))).map(slot => slot.sortKey)).size;
+    items.push([usable >= needed, usable >= needed
+      ? `Enough slots are available overall (${usable} slots for at least ${needed} games). Other scheduling constraints still apply.`
+      : `Not enough slots overall: ${usable} usable slots for at least ${needed} games.`]);
+  } else {
+    items.push([false, 'Complete availability and division details to check overall capacity.']);
+  }
+  document.getElementById('generateButton').disabled = !items.every(([ready]) => ready);
+  list.replaceChildren(...items.map(([ready, message]) => {
+    const item = document.createElement('li');
+    item.textContent = `${ready ? '✓' : '○'} ${message}`;
+    item.className = ready ? 'ready' : 'not-ready';
+    return item;
+  }));
+}
 
 function restoreState(state) {
   // Restore TSV first so field checkboxes can populate
@@ -38,6 +96,7 @@ function restoreState(state) {
 }
 
 function clearInputs() {
+  if (!window.confirm('Clear all inputs and results? This cannot be undone.')) return;
   // Reset divisions to one empty row
   const tbody = document.querySelector('#divisionTable tbody');
   tbody.innerHTML = '';
@@ -47,6 +106,9 @@ function clearInputs() {
   // Clear TSV
   document.getElementById('tsvInput').value = '';
   document.getElementById('fileName').textContent = '';
+  document.getElementById('tsvFile').value = '';
+  updateAvailabilityPreview();
+  updateReadiness();
 
   // Reset penalty weights to defaults
   resetWeights();
@@ -94,6 +156,8 @@ function loadSample() {
 
   document.getElementById('tsvInput').value = tsv;
   updateFieldChoices();
+  updateAvailabilityPreview();
+  updateReadiness();
   debouncedSave();
 }
 
@@ -114,6 +178,8 @@ function handleFileUpload(e) {
   reader.onload = (evt) => {
     document.getElementById('tsvInput').value = evt.target.result;
     updateFieldChoices();
+    updateAvailabilityPreview();
+    updateReadiness();
     debouncedSave();
   };
   reader.readAsText(file);
@@ -121,12 +187,12 @@ function handleFileUpload(e) {
 
 // Expose functions referenced by onclick attributes in HTML
 window.generate = generate;
-window.addDivisionRow = addDivisionRow;
+window.addDivisionRow = (...args) => { addDivisionRow(...args); updateReadiness(); };
 window.clearInputs = clearInputs;
 window.resetWeights = resetWeights;
 window.togglePenalties = togglePenalties;
 window.loadSample = loadSample;
-window.removeDivisionRow = removeDivisionRow;
+window.removeDivisionRow = (...args) => { removeDivisionRow(...args); updateReadiness(); };
 window.toggleDivWeights = toggleDivWeights;
 window.downloadCSV = downloadCSV;
 
@@ -141,20 +207,25 @@ document.addEventListener('DOMContentLoaded', () => {
     addDivisionRow();
   }
 
+  updateAvailabilityPreview();
+  updateReadiness();
+
   // Update field checkboxes when TSV changes
   let debounceTimer;
   document.getElementById('tsvInput').addEventListener('input', () => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       updateFieldChoices();
+      updateAvailabilityPreview();
+      updateReadiness();
       debouncedSave();
     }, 300);
   });
 
   // Auto-save on division table changes
   const divTable = document.getElementById('divisionTable');
-  divTable.addEventListener('input', debouncedSave);
-  divTable.addEventListener('change', debouncedSave);
+  divTable.addEventListener('input', () => { debouncedSave(); updateReadiness(); });
+  divTable.addEventListener('change', () => { debouncedSave(); updateReadiness(); });
 
   // Auto-save on penalty weight changes
   document.getElementById('penaltyGrid').addEventListener('input', debouncedSave);

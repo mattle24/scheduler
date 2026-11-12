@@ -86,7 +86,7 @@ function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit, excludedDays)
     <td><div class="div-excluded-days">${dayCheckboxes}</div></td>
     <td><div class="div-fields"></div></td>
     <td style="white-space:nowrap;">
-      <button class="btn-secondary btn-sm btn-div-weights" onclick="toggleDivWeights(this)" title="Per-division weight overrides">Weights</button>
+      <button class="btn-secondary btn-sm btn-div-weights" onclick="toggleDivWeights(this)" title="Adjust scheduling priorities for this division">Priorities</button>
       <button class="btn-remove" onclick="removeDivisionRow(this)" title="Remove division">&times;</button>
     </td>
   `;
@@ -101,7 +101,7 @@ function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit, excludedDays)
   panel.className = 'div-weights-panel';
   const hint = document.createElement('p');
   hint.className = 'penalty-hint';
-  hint.textContent = 'Override penalty weights for this division only. Leave blank to use the global value.';
+  hint.textContent = 'Adjust these scheduling priorities for this division. Leave a value blank to use the all-division setting. Higher numbers give a preference more weight; 0 removes its penalty.';
   panel.appendChild(hint);
   const grid = document.createElement('div');
   grid.className = 'div-weights-grid';

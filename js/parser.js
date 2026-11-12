@@ -28,7 +28,8 @@ function parseTSV(text) {
     const rawDate = cols[dateColOffset]?.trim().replace(/^["']|["']$/g, '');
     if (!rawDate) continue;
     const d = parseDate(rawDate);
-    if (isNaN(d.getTime())) throw new Error(`Invalid date: "${rawDate}" on row ${i + 1}`);
+    const parts = rawDate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (isNaN(d.getTime()) || (parts && (d.getFullYear() !== +parts[3] || d.getMonth() + 1 !== +parts[1] || d.getDate() !== +parts[2]))) throw new Error(`Invalid date: "${rawDate}" on row ${i + 1}`);
     const ds = dateStr(d);
     const dow = d.getDay();
     const wg = getWeekendGroup(ds);
@@ -39,6 +40,10 @@ function parseTSV(text) {
       if (!cell) continue;
       const times = cell.split(',').map(normalizeTime).filter(t => t);
       for (const t of times) {
+        const match = t.match(/^(\d{1,2}):(\d{2})(am|pm)$/);
+        if (!match || +match[1] < 1 || +match[1] > 12 || +match[2] > 59) {
+          throw new Error(`Invalid time "${t}" on row ${i + 1}, field ${fields[f]}. Use a time like 9:00am.`);
+        }
         slots.push({
           date: ds,
           dayOfWeek: dow,

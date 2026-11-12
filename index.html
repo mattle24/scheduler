@@ -5,49 +5,55 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Little League Scheduler</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚾</text></svg>">
-<link rel="stylesheet" href="styles.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=7">
 </head>
 <body>
 
 <h1>Scheduler</h1>
+<p class="subtitle">Create game schedules from your field availability. Review schedules, team summaries, and field usage, then download the results as a CSV.</p>
 
 <div class="card" id="settingsCard">
-  <h2>Settings</h2>
+  <h2 class="section-heading"><span class="material-symbols-outlined section-icon" aria-hidden="true">tune</span>Settings</h2>
   <div style="margin-bottom: 1rem;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem;">
-      <label style="margin-bottom: 0;">Divisions</label>
-      <div style="display: flex; gap: .5rem;">
-        <button class="btn-secondary btn-sm" onclick="addDivisionRow()">+ Add Division</button>
-        <button class="btn-secondary btn-sm" onclick="loadSample()">Load Sample Data</button>
-        <button class="btn-secondary btn-sm" onclick="clearInputs()">Clear All</button>
-      </div>
+      <div class="section-heading section-label"><span class="material-symbols-outlined section-icon" aria-hidden="true">groups</span>Divisions</div>
     </div>
+    <div class="division-table-scroll" role="region" aria-label="Division settings" tabindex="0">
     <table class="division-table" id="divisionTable">
       <thead><tr>
         <th>Name</th>
         <th>Teams</th>
         <th>Games/Team</th>
-        <th>AL/NL</th>
-        <th>Excluded Days</th>
+        <th>Split into two leagues</th>
+        <th>No games on <span class="column-hint">Checked days apply to every team in this division.</span></th>
         <th>Fields</th>
         <th></th>
       </tr></thead>
       <tbody></tbody>
     </table>
+    </div>
+    <button class="btn-secondary btn-sm" onclick="addDivisionRow()">+ Add Division</button>
   </div>
-  <label for="tsvInput">Field Availability (TSV — paste from spreadsheet or upload file)</label>
+  <h3 class="section-heading section-label availability-heading"><span class="material-symbols-outlined section-icon" aria-hidden="true">calendar_month</span>Fields</h3>
+  <label for="tsvInput">Paste from a spreadsheet or upload a file</label>
+  <p class="availability-hint" id="availabilityHint">Copy the date and field columns, including headers, from your spreadsheet and paste them in the box below, or upload a file. Leave unavailable fields blank; separate multiple times with commas (for example, 9:00am, 1:00pm).</p>
   <div class="file-upload-row">
     <input type="file" id="tsvFile" accept=".tsv,.csv,.txt,.xls,.xlsx" class="file-input">
     <label for="tsvFile" class="btn-secondary btn-sm file-label">Upload File</label>
     <span id="fileName" class="file-name"></span>
+    <a class="template-link" href="data:text/tab-separated-values;charset=utf-8,Date%09Field%201%09Field%202%0A4%2F11%2F2026%099%3A00am%2C%201%3A00pm%0910%3A00am%0A4%2F12%2F2026%0910%3A00am%09" download="field-availability-template.tsv">Download template</a>
   </div>
-  <textarea id="tsvInput" rows="8" placeholder="Date&#9;Field 1&#9;Field 2&#10;4/11/2026&#9;9:00am, 1:00pm&#9;10:00am&#10;4/12/2026&#9;10:00am&#9;..."></textarea>
+  <textarea id="tsvInput" aria-describedby="availabilityHint availabilityPreview" rows="8" placeholder="Date&#9;Field 1&#9;Field 2&#10;4/11/2026&#9;9:00am, 1:00pm&#9;10:00am&#10;4/12/2026&#9;10:00am&#9;"></textarea>
+  <div id="availabilityPreview" class="availability-preview hidden" role="status" aria-live="polite"></div>
   <div class="penalty-section">
     <div class="penalty-header" onclick="togglePenalties()">
-      <span>&#9654;</span> Penalty Weights
+      <span class="disclosure-arrow">&#9654;</span> <span class="material-symbols-outlined section-icon" aria-hidden="true">tune</span> Scheduling priorities (all divisions)
     </div>
     <div id="penaltyWeights" class="penalty-body collapsible">
-      <p class="penalty-hint">Controls how much the optimizer cares about each rule. Higher = stronger priority. Set to 0 to ignore a rule.</p>
+      <p class="penalty-hint">Adjust how strongly the scheduler favors each preference across divisions. Higher numbers give a preference more weight; 0 removes its penalty. Some priorities can be adjusted for an individual division above.</p>
       <div class="penalty-grid" id="penaltyGrid"></div>
       <button class="btn-secondary btn-sm" onclick="resetWeights()">Reset to Defaults</button>
       <div class="hard-constraints">
@@ -61,12 +67,20 @@
       </div>
     </div>
   </div>
+  <section class="readiness" aria-label="Schedule readiness">
+    <strong class="section-heading"><span class="material-symbols-outlined section-icon" aria-hidden="true">checklist</span>Ready to generate?</strong>
+    <ul id="readinessList" aria-live="polite"></ul>
+  </section>
   <div class="actions">
-    <button class="btn-primary" onclick="generate()">Generate Schedule</button>
+    <button id="generateButton" class="btn-primary" onclick="generate()" disabled>Generate Schedule</button>
+  </div>
+  <div class="settings-utilities">
+    <button class="btn-link" onclick="loadSample()">Load sample data</button>
+    <button class="btn-link" onclick="clearInputs()">Clear all inputs</button>
   </div>
   <div class="explainer-section">
     <div class="penalty-header" onclick="this.classList.toggle('open'); document.getElementById('explainerBody').classList.toggle('open')">
-      <span>&#9654;</span> &#9432; How does the scheduler work?
+      <span class="disclosure-arrow">&#9654;</span> <span class="material-symbols-outlined section-icon" aria-hidden="true">help</span> How does the scheduler work?
     </div>
     <div id="explainerBody" class="penalty-body collapsible">
       <div class="explainer-content">
@@ -89,6 +103,6 @@
 
 <div id="results" class="hidden"></div>
 
-<script type="module" src="js/ui.js"></script>
+<script type="module" src="js/ui.js?v=5"></script>
 </body>
 </html>
