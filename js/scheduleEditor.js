@@ -20,7 +20,7 @@ export function mountEditor(session, onChange) {
         </div>
         <section class="board-panel" aria-labelledby="workspaceTitle">
           <div class="section-heading">
-            
+
             <div class="week-controls"><button type="button" id="previousWeek" aria-label="Previous week">←</button><label class="week-jump">Jump to week <select id="weekJump" aria-label="Jump to week"></select></label><button type="button" id="nextWeek" aria-label="Next week">→</button></div>
           </div>
           <p class="section-help">Select a game, then select an open time to move it or another game to swap, including one in another division. Both games must be eligible for their new slots. Applying a change updates Results and CSV. Undo history lasts until refresh or generation. Use Clear selection when you want to choose a different game. Hover over a slot for its action or a blocked reason.</p>
@@ -39,7 +39,7 @@ export function mountEditor(session, onChange) {
       <div class="preview-column">
       <div class="undo-card"><button type="button" id="undoButton">Undo last change</button><button type="button" id="undoAllButton">Undo all edits</button></div>
       <aside class="inspector" aria-labelledby="inspectorTitle">
-        <div class="inspector-top"><p class="eyebrow">03 · Move preview</p><h2 id="inspectorTitle">What changes?</h2></div>
+        <div class="inspector-top"><p class="eyebrow">Move preview</p><h2 id="inspectorTitle">What changes?</h2></div>
         <div id="inspectorBody"></div>
       </aside>
       </div>
@@ -438,7 +438,6 @@ export function mountEditor(session, onChange) {
       operations,
       'No non-team penalty changes for this move.'
     )}</div>`;
-    html += `<p class="score-note">The total uses the actual scheduler score. Collective balance penalties and rounding are included below the team contributions. Lower is better; you can still choose a move with a higher score.</p>`;
     body.innerHTML = html;
   }
 
@@ -567,6 +566,7 @@ export function mountEditor(session, onChange) {
     history.push([game, occupant].filter(Boolean).map((item) => ({ ...item })));
     games = moveSchedule(game, slot);
     onChange(games);
+    selectedGameId = null;
     targetKey = null;
     notice = `${gameLabel(game)} ${
       occupant ? 'swapped with ' + gameLabel(occupant) + ' at' : 'moved to'

@@ -1,6 +1,6 @@
 import { renderCalendar } from './calendar.js';
 import { DAYS } from './constants.js';
-import { daysBetween, slotBucket, timeSortKey, formatTimeDisplay, isoWeek, addDays } from './utils.js';
+import { daysBetween, slotBucket, timeSortKey, formatTimeDisplay, isoWeek, addDays, getWeekendGroup } from './utils.js';
 
 let lastCSV = '';
 function setLastCSV(csv) { lastCSV = csv; }
@@ -59,7 +59,7 @@ function renderMultiDivisionResults(divisionResults, allSlots) {
     intro.appendChild(heading);
     section.appendChild(intro);
 
-    renderDivisionBlock(section, dr.schedule, dr.details, dr.division.numTeams, dr.division.leagueSplit);
+    renderDivisionBlock(section, dr.schedule, dr.details, dr.division.numTeams, dr.division.leagueSplit, dr.slots);
     const calendarCard=document.createElement('div'); calendarCard.className='card';
     const title=document.createElement('h2'); title.textContent=dr.division.name+' Schedule'; calendarCard.append(title);
     renderCalendar(calendarCard,dr.schedule,allSlots.filter(s=>dr.division.fields.includes(s.field)&&!dr.division.excludedDays.includes(s.dayOfWeek)),{numTeams:dr.division.numTeams,divisionIndex:i});
@@ -330,39 +330,170 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
   renderWeek();
 }
 
-function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit) {
+function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit, slots = []) {
+  const teamCounts = Array.from({ length: numTeams }, (_, team) => {
+    const games = schedule.filter(g => g.home === team || g.away === team);
+    const dates = games.map(g => g.date).sort();
+    let btb = 0, shortRest = 0;
+    for (let i = 1; i < dates.length; i++) {
+      const gap = daysBetween(dates[i - 1], dates[i]);
+      if (gap === 1) btb++;
+      if (gap < 3) shortRest++;
+    }
+    return { btb, shortRest };
+  });
+  const range = key => {
+    const counts = teamCounts.map(t => t[key]);
+    if (!counts.length) return '0';
+    const min = Math.min(...counts), max = Math.max(...counts);
+    return min === max ? `${min}` : `${min}–${max}`;
+  };
+  let worstSaturdayShare = null;
+  for (let team = 0; team < numTeams; team++) {
+    const games = schedule.filter(g => (g.home === team || g.away === team)
+      && (g.dayOfWeek === 0 || g.dayOfWeek === 6));
+    if (!games.length) continue;
+    const share = games.filter(g => g.dayOfWeek === 6).length / games.length;
+    if (worstSaturdayShare === null || Math.abs(share - 0.5) > Math.abs(worstSaturdayShare - 0.5)) {
+      worstSaturdayShare = share;
+    }
+  }
+  const saturdayPercent = worstSaturdayShare === null ? null : Math.round(100 * worstSaturdayShare);
   // Score cards
   const cards = [
     { label: 'Weekend Sit-outs', value: details.weekendSitouts, min: 0,
-      tip: 'Number of times a team has zero games on a weekend that has available field times. Lower is better.' },
+      tip: 'Missed weekends beyond unavoidable sit-outs.' },
     { label: 'Weekend Back-to-Back', value: details.weekendDoubleHeaders, min: details.minWeekendDH,
-      tip: 'Number of times a team plays 2+ games in the same Sat-Sun weekend. Each extra game beyond 1 counts as 1.' },
-    { label: 'Early Season Density', value: details.earlySeasonDensity, min: 0,
-      tip: 'Pairs of games within 2 days of each other in the first 7 days of the season.' },
-    { label: 'Weekend B2B Field Time', value: details.weekendBTBTimePenalty, min: 0,
-      tip: 'Cases where 2nd day of a Fri/Sat or Sat/Sun back-to-back has an earlier field time than the 1st day.' },
+      tip: 'Times a team plays on both Saturday and Sunday.' },
+    { label: 'Closely Spaced Opening Games', value: details.earlySeasonDensity, min: 0,
+      tip: 'Game pairs 1–2 days apart during the opening week.' },
+    { label: 'Back-to-Back Earlier Starts', value: details.weekendBTBTimePenalty, min: 0,
+      tip: 'Friday–Saturday or Saturday–Sunday game pairs with an earlier start on the second day.' },
     { label: 'Sat/Sun Balance', value: details.satSunBalance, min: 0,
-      tip: 'How uneven Saturday vs Sunday game counts are per team. 0 = perfectly balanced.' },
+      good: worstSaturdayShare !== null && worstSaturdayShare >= 0.45 && worstSaturdayShare <= 0.55,
+      display: saturdayPercent === null ? 'No weekend games' : `${saturdayPercent}% / ${100 - saturdayPercent}%`,
+      note: saturdayPercent === null ? '' : 'Saturday / Sunday · worst-balanced team',
+      tip: 'Saturday / Sunday split for the team furthest from 50/50, excluding teams with no weekend games. Green means every team is within 45–55% Saturday.' },
     { label: 'Back-to-Back Balance', value: details.btbBalance, min: 0,
-      tip: 'Variance of back-to-back (consecutive day) game counts across teams. 0 = all teams have equal back-to-backs.' },
-    { label: 'Short Gap Balance', value: details.shortGapBalance, min: 0,
-      tip: 'Variance of short-rest game counts across teams (< 3 days rest). 0 = all teams have equal numbers of short-rest games.' },
+      display: `${range('btb')} back-to-backs`, note: 'per team',
+      tip: 'Fewest to most consecutive-day game pairs per team. Green means equal counts.' },
+    { label: 'Short-Rest Balance', value: details.shortGapBalance, min: 0,
+      display: `${range('shortRest')} short-rest games`, note: 'per team',
+      tip: 'Fewest to most game pairs 1–2 days apart per team. Green means equal counts.' },
   ];
 
   const scoreCard = document.createElement('div');
   scoreCard.className = 'card';
-  scoreCard.innerHTML = '<h2>Constraint Scores</h2><div class="score-grid">' + cards.map(c => {
-    let cls;
-    if (c.rawClass) {
-      cls = c.rawClass;
-    } else {
-      const excess = c.min != null ? c.value - c.min : c.value;
-      cls = excess === 0 ? 'good' : excess <= 3 ? 'ok' : 'bad';
-    }
+  scoreCard.innerHTML = '<h2>Schedule Quality</h2><div class="score-grid">' + cards.map((c, index) => {
+    const isGood = c.good ?? (c.value === 0);
+    const cls = isGood ? 'good' : 'ok';
     const minNote = c.min != null && c.min > 0 ? `<div class="min-note">best possible: ${c.min}</div>` : '';
-    const tipAttr = c.tip ? ` data-tip="${c.tip}"` : '';
-    return `<div class="score-card"${tipAttr}><div class="label">${c.label}</div><div class="value ${cls}">${c.value}</div>${minNote}</div>`;
+    const tip = c.tip;
+    const tipAttr = tip ? ` data-tip="${tip}"` : '';
+    const note = c.note ? `<div class="min-note">${c.note}</div>` : '';
+    return `<div class="score-card"><div class="score-explanation"${tipAttr} tabindex="0"><div class="label">${c.label}</div><div class="value ${cls}">${c.display ?? c.value}</div>${note}${minNote}</div>${isGood ? '' : `<button type="button" class="score-details-link" data-score-index="${index}">View details</button>`}</div>`;
   }).join('') + '</div>';
+  scoreCard.querySelectorAll('.score-details-link').forEach(button => {
+    const index = Number(button.dataset.scoreIndex);
+    const panel = document.createElement('dialog');
+    panel.className = 'score-details-drawer';
+    const header = document.createElement('div');
+    header.className = 'score-details-header';
+    const title = document.createElement('h2');
+    title.textContent = cards[index].label;
+    const titleId = `score-detail-${Math.random().toString(36).slice(2)}`;
+    title.id = titleId;
+    panel.setAttribute('aria-labelledby', titleId);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'btn-secondary';
+    close.textContent = 'Close ×';
+    close.addEventListener('click', () => panel.close());
+    header.append(title, close);
+    const explanation = document.createElement('p');
+    explanation.textContent = cards[index].tip;
+    panel.append(header, explanation);
+    button.addEventListener('click', () => panel.showModal());
+    panel.addEventListener('close', () => button.focus({ preventScroll: true }));
+    panel.addEventListener('click', event => {
+      const rect = panel.getBoundingClientRect();
+      if (event.target === panel && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) panel.close();
+    });
+    scoreCard.appendChild(panel);
+    const table = document.createElement('table');
+    const heading = document.createElement('caption');
+    heading.textContent = index === 0 ? 'Weekends without games, before unavoidable sit-outs are forgiven' : 'Games by team';
+    table.appendChild(heading);
+    const detailDate = date => new Date(`${date}T12:00:00`).toLocaleDateString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric',
+    });
+    const detailGame = game => `${detailDate(game.date)} ${game.time.toUpperCase().replace(/:00(?=[AP]M$)/, '')}`;
+    const seasonStart = schedule.map(g => g.date).sort()[0];
+    const teamOrder = Array.from({ length: numTeams }, (_, team) => team);
+    if (index === 4) {
+      const deviation = team => {
+        const games = schedule.filter(g => (g.home === team || g.away === team)
+          && (g.dayOfWeek === 0 || g.dayOfWeek === 6));
+        return games.length ? Math.abs(games.filter(g => g.dayOfWeek === 6).length / games.length - 0.5) : -1;
+      };
+      const deviations = teamOrder.map(deviation);
+      teamOrder.sort((a, b) => deviations[b] - deviations[a] || a - b);
+      heading.textContent = 'Teams ordered by distance from 50% Saturday, most uneven first';
+    }
+    for (const team of teamOrder) {
+      const games = schedule.filter(g => g.home === team || g.away === team)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      let entries;
+      if (index === 0) {
+        const weekends = [...new Set(slots.filter(s => s.dayOfWeek === 0 || s.dayOfWeek === 6).map(s => s.weekendGroup))].sort();
+        const played = new Set(games.filter(g => g.dayOfWeek === 0 || g.dayOfWeek === 6).map(g => getWeekendGroup(g.date)));
+        entries = weekends.filter(w => !played.has(w)).map(w => `${detailDate(w)} – ${detailDate(addDays(w, 1))}`);
+      } else if (index === 4) {
+        const saturday = games.filter(g => g.dayOfWeek === 6).length;
+        const sunday = games.filter(g => g.dayOfWeek === 0).length;
+        const total = saturday + sunday;
+        const percent = total ? Math.round(100 * saturday / total) : null;
+        entries = [percent === null ? 'No weekend games'
+          : `${percent}% Saturday / ${100 - percent}% Sunday`];
+      } else if ([3, 5, 6].includes(index)) {
+        entries = [];
+        for (let i = 1; i < games.length; i++) {
+          const prev = games[i - 1], game = games[i];
+          const gap = daysBetween(prev.date, game.date);
+          const matches = index === 6 ? gap < 3 : gap === 1;
+          const earlierWeekendStart = (prev.dayOfWeek === 5 && game.dayOfWeek === 6 || prev.dayOfWeek === 6 && game.dayOfWeek === 0)
+            && timeSortKey(game.time) < timeSortKey(prev.time);
+          if (matches && (index !== 3 || earlierWeekendStart)) {
+            entries.push(`${detailGame(prev)} → ${detailGame(game)}`);
+          }
+        }
+      } else if (index === 2) {
+        entries = [];
+        for (let i = 1; i < games.length; i++) {
+          if (daysBetween(seasonStart, games[i].date) < 7 && daysBetween(games[i - 1].date, games[i].date) <= 2) {
+            entries.push(`${detailGame(games[i - 1])} → ${detailGame(games[i])}`);
+          }
+        }
+      } else {
+        entries = games.filter(g => g.dayOfWeek === 0 || g.dayOfWeek === 6)
+          .map(g => detailGame(g));
+      }
+      const row = document.createElement('tr');
+      const name = document.createElement('th');
+      name.scope = 'row';
+      name.textContent = `${team + 1}B`;
+      const cell = document.createElement('td');
+      if (!entries.length) cell.textContent = 'None';
+      for (const entry of entries) {
+        const line = document.createElement('div');
+        line.textContent = entry;
+        cell.appendChild(line);
+      }
+      row.append(name, cell);
+      table.appendChild(row);
+    }
+    panel.appendChild(table);
+  });
   container.appendChild(scoreCard);
 
   // Per-team summary

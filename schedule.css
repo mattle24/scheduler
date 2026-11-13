@@ -181,8 +181,12 @@
   font-weight: 750;
 }
 .schedule-ui .week-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 31px;
   height: 31px;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: white;
@@ -943,10 +947,12 @@
 }
 .schedule-ui .calendar-controls {
   display: flex;
+  align-items: center;
   gap: 12px;
   flex-wrap: wrap;
   justify-content: space-between;
   margin: 12px 0;
+  padding: 8px;
 }
 .schedule-ui .undo-card {
   display: flex;

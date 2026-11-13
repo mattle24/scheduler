@@ -33,7 +33,7 @@ function generate() {
         const percent = Math.floor(completedPasses / maxPasses * 100);
         document.getElementById('progressFill').style.width = percent + '%';
         const activityLabel = pct == null ? `${activity}…` : `${activity}: ${Math.round(pct * 100)}%`;
-        const label = `${completedPasses} of up to ${maxPasses} passes completed (may finish early) — ${activityLabel}`;
+        const label = `${completedPasses} of up to ${maxPasses} passes completed — ${activityLabel}`;
         document.getElementById('progressLabel').textContent = Number.isFinite(score) ? label + ' — quality score: ' + score.toFixed(1) + ' (lower is better)' : label;
       };
 
@@ -70,7 +70,7 @@ function generate() {
         statusBox.innerHTML = `
           <div>${divLabel}</div>
           <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-          <div class="progress-label" id="progressLabel">0% of maximum passes (may finish early)</div>`;
+          <div class="progress-label" id="progressLabel">0% of maximum passes</div>`;
         updateProgress('Building candidates', 0, Infinity);
 
         const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, updateProgress,
@@ -123,7 +123,7 @@ function generate() {
             statusBox.innerHTML = `
               <div>${divLabel}</div>
               <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-              <div class="progress-label" id="progressLabel">0% of maximum passes (may finish early)</div>`;
+              <div class="progress-label" id="progressLabel">0% of maximum passes</div>`;
             updateProgress('Building candidates', 0, Infinity);
 
             // Collect other divisions' games (tagged with division name) so the
