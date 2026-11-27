@@ -1,4 +1,4 @@
-import { addDays, daysBetween, formatTimeDisplay, isoWeek, timeSortKey } from './utils.js';
+import { addDays, daysBetween, formatTimeDisplay, timeSortKey } from './utils.js';
 
 // Each consecutive group of the requested size is a separate stretch.
 // Index it by game so stretches can be shown even across visible date ranges.
@@ -55,7 +55,7 @@ const shortDate = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 
 const formatDate = date => shortDate.format(new Date(date + 'T00:00:00'));
 
 export function renderOpponentTimeline(container, schedule, numTeams, onEditGame, viewState = {}) {
-  container.append(element('h2', 'Opponent Timeline'));
+  container.append(element('h2', 'Game Density'));
   if (!schedule.length) {
     container.append(element('p', 'No games scheduled.'));
     return;
@@ -68,117 +68,118 @@ export function renderOpponentTimeline(container, schedule, numTeams, onEditGame
     teamGames[game.home].push(game);
     teamGames[game.away].push(game);
   }
-  const gamesByTeamAndDate = teamGames.map(games => {
-    const byDate = new Map();
-    for (const game of games) {
-      if (!byDate.has(game.date)) byDate.set(game.date, []);
-      byDate.get(game.date).push(game);
-    }
-    return byDate;
-  });
-
-  const firstWeek = isoWeek(sortedGames[0].date);
-  const lastWeek = isoWeek(sortedGames.at(-1).date);
-  const lastStart = firstWeek === lastWeek ? firstWeek : addDays(lastWeek, -7);
-  let week = viewState.week ?? firstWeek;
-  week = week < firstWeek ? firstWeek : week > lastStart ? lastStart : week;
   let gameCount = viewState.gameCount ?? 3;
   let dayCount = viewState.dayCount ?? 5;
 
-  const navigation = element('div', '', 'field-week-navigation field-week-navigation-local');
-  const dateRange = element('strong');
-  dateRange.setAttribute('aria-live', 'polite');
-  const previous = button('Previous week', () => changeWeek(-7));
-  const next = button('Next week', () => changeWeek(7));
-  navigation.append(previous, dateRange, next);
-
   const settings = element('div', '', 'timeline-window-controls');
-  const legend = element('span', '', 'timeline-window-legend');
   settings.append(numberControl('Games in stretch', gameCount, 2, 10, value => {
     viewState.gameCount = gameCount = value;
+    selectedTeam = selectedStretch = null;
+    details.replaceChildren(element('p', 'Select a team’s tally to see its matching stretches.'));
     render();
   }), numberControl('Calendar days', dayCount, 2, 14, value => {
     viewState.dayCount = dayCount = value;
+    selectedTeam = selectedStretch = null;
+    details.replaceChildren(element('p', 'Select a team’s tally to see its matching stretches.'));
     render();
-  }), legend);
+  }));
 
+  const legend = element('p', 'Highlighted games belong to a matching stretch. Cells show opponents; # is the number of games on that date. Overlapping stretches count separately.', 'timeline-legend');
   const grid = element('div', '', 'timeline-grid');
+  grid.tabIndex = 0;
+  grid.setAttribute('aria-label', 'Scrollable season schedule');
   const details = element('div', '', 'timeline-game-details');
-  details.tabIndex = -1;
-  details.hidden = true;
-  container.append(navigation, settings, grid, details);
+  details.setAttribute('aria-live', 'polite');
+  details.append(element('p', 'Select a team’s tally to see its matching stretches.'));
+  container.append(legend, grid, details);
+  let selectedTeam = null;
+  let selectedStretch = null;
 
-  function changeWeek(offset) {
-    viewState.week = week = addDays(week, offset);
-    render();
+  function showGame(game) {
+    details.replaceChildren();
+    details.append(element('h3', `${teamLabel(game.away)} at ${teamLabel(game.home)} · ${formatDate(game.date)}`));
+    details.append(element('p', `${formatTimeDisplay(game.time)} · ${game.field}`));
+    if (onEditGame) details.append(button('Preview move or swap', () => onEditGame(game)));
   }
 
-  function showGames(game, team, stretches) {
+  function showStretches(team, stretches) {
     details.replaceChildren();
-    details.hidden = false;
-    details.append(element('h3', `${teamLabel(team)} vs ${teamLabel(opponent(game, team))} · ${formatDate(game.date)}`));
-    if (stretches.length) {
-      details.append(element('p', `Tight stretches of ${gameCount} games within ${dayCount} calendar days`));
-    }
-    for (const stretch of stretches.length ? stretches : [[game]]) {
-      const list = element('ul');
-      for (const member of stretch) {
-        const label = `${formatDate(member.date)} · ${formatTimeDisplay(member.time)} · ${member.field} · ${teamLabel(member.away)} at ${teamLabel(member.home)}`;
-        const item = element('li', label);
-        if (onEditGame) {
-          const edit = button('Preview move or swap', () => onEditGame(member));
-          edit.setAttribute('aria-label', `Preview move or swap for ${label}`);
+    details.append(element('h3', `${teamLabel(team)} · ${stretches.length} ${stretches.length === 1 ? 'stretch' : 'stretches'}`));
+    details.append(element('p', 'Select a stretch to highlight its games in the table.'));
+    const list = element('ol');
+    for (const stretch of stretches) {
+      const item = element('li');
+      const link = button(`${formatDate(stretch[0].date)} – ${formatDate(stretch.at(-1).date)}`, () => {
+        selectedStretch = stretch;
+        render();
+        grid.querySelector(`[data-date="${stretch[0].date}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }, 'timeline-link');
+      item.append(link, document.createTextNode(' · ' + stretch.map(game => `${formatDate(game.date)} vs ${teamLabel(opponent(game, team))}`).join(' / ')));
+      if (onEditGame) {
+        for (const game of stretch) {
+          const edit = button(`Edit ${formatDate(game.date)}`, () => onEditGame(game));
+          edit.setAttribute('aria-label', `Preview move or swap for ${teamLabel(team)} vs ${teamLabel(opponent(game, team))} on ${formatDate(game.date)}`);
           item.append(edit);
         }
-        list.append(item);
       }
-      details.append(list);
+      list.append(item);
     }
-    details.focus();
+    details.append(list);
   }
 
   function render() {
-    const dates = Array.from({ length: 14 }, (_, index) => addDays(week, index));
-    dateRange.textContent = `${formatDate(week)} – ${formatDate(dates.at(-1))}`;
-    legend.textContent = `⚑ ${gameCount} games within ${dayCount} calendar days`;
-    previous.disabled = week === firstWeek;
-    next.disabled = week === lastStart;
-    details.hidden = true;
+    const stretches = teamGames.map(games => [...new Set([...tightStretches(games, gameCount, dayCount).values()].flat())]);
+    const flagged = stretches.map(list => new Set(list.flat()));
+    const byDate = new Map();
+    for (const game of sortedGames) {
+      if (!byDate.has(game.date)) byDate.set(game.date, []);
+      byDate.get(game.date).push(game);
+    }
     grid.replaceChildren();
-
-    const table = element('table', '', 'heatmap-table team-heatmap timeline-table');
-    table.setAttribute('aria-label', 'Opponents by team and date');
-    const header = table.createTHead().insertRow();
-    const teamHeader = element('th', 'Team');
-    teamHeader.scope = 'col';
-    header.append(teamHeader);
-    for (const date of dates) {
-      const day = new Date(date + 'T00:00:00').getDay();
-      const cell = element('th', formatDate(date), day === 0 || day === 6 ? 'date-header weekend' : 'date-header');
+    const table = element('table', '', 'timeline-table');
+    table.setAttribute('aria-label', 'Season game density by date and team');
+    const head = table.createTHead();
+    const header = head.insertRow();
+    for (const label of ['Date', '#', ...teamGames.map((_, team) => teamLabel(team))]) {
+      const cell = element('th', label);
       cell.scope = 'col';
       header.append(cell);
     }
-
+    const tallyRow = head.insertRow();
+    tallyRow.append(element('th', `${gameCount} in ${dayCount} days`), element('th', 'Tally'));
+    for (const [team, list] of stretches.entries()) {
+      const cell = element('th');
+      if (list.length) {
+        const tally = button(String(list.length), () => {
+          selectedTeam = team;
+          selectedStretch = null;
+          render();
+          showStretches(team, list);
+        }, 'timeline-tally' + (selectedTeam === team ? ' selected' : ''));
+        tally.setAttribute('aria-label', `${teamLabel(team)}: ${list.length} matching stretches; show games`);
+        cell.append(tally);
+      } else cell.textContent = '0';
+      tallyRow.append(cell);
+    }
     const body = table.createTBody();
-    for (const [team, games] of teamGames.entries()) {
+    for (let date = sortedGames[0].date; date <= sortedGames.at(-1).date; date = addDays(date, 1)) {
       const row = body.insertRow();
-      const teamCell = element('th', teamLabel(team), 'timeline-team');
-      teamCell.scope = 'row';
-      row.append(teamCell);
-      const stretches = tightStretches(games, gameCount, dayCount);
-      const byDate = gamesByTeamAndDate[team];
-      for (const date of dates) {
+      row.dataset.date = date;
+      const dow = new Date(date + 'T00:00:00').getDay();
+      if (dow === 0 || dow === 6) row.classList.add('timeline-weekend');
+      if (dow === 1) row.classList.add('timeline-week-start');
+      const dateCell = element('th', formatDate(date));
+      dateCell.scope = 'row';
+      row.append(dateCell);
+      const games = byDate.get(date) ?? [];
+      row.insertCell().textContent = games.length || '·';
+      for (let team = 0; team < numTeams; team++) {
         const cell = row.insertCell();
-        for (const game of byDate.get(date) ?? []) {
-          const flagged = stretches.get(game) ?? [];
-          const opponentLabel = teamLabel(opponent(game, team));
-          const gameButton = button(
-            flagged.length ? `${opponentLabel} ⚑` : opponentLabel,
-            () => showGames(game, team, flagged),
-            flagged.length ? 'timeline-match timeline-match-tight' : 'timeline-match'
-          );
-          gameButton.setAttribute('aria-label',
-            `${teamLabel(team)} vs ${opponentLabel}, ${formatDate(date)}${flagged.length ? ', tight stretch' : ''}`);
+        for (const game of games.filter(g => g.home === team || g.away === team)) {
+          const gameButton = button(teamLabel(opponent(game, team)), () => showGame(game),
+            'timeline-match' + (flagged[team].has(game) ? ' timeline-match-tight' : '') +
+            (selectedTeam === team && selectedStretch?.includes(game) ? ' selected' : ''));
+          gameButton.setAttribute('aria-label', `${teamLabel(team)} vs ${teamLabel(opponent(game, team))}, ${formatDate(date)}${flagged[team].has(game) ? ', matching stretch' : ''}`);
           cell.append(gameButton);
         }
       }

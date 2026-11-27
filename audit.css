@@ -16,13 +16,18 @@
 .audit-controls p { flex: 1 1 18rem; align-self: end; }
 
 .audit-table td.audit-above {
-  background: #fee2e2;
-  color: #7f1d1d;
+  background: #fef3c7;
+  color: #78350f;
 }
 
 .audit-table td.audit-below {
-  background: #dcfce7;
-  color: #14532d;
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+.audit-table td.audit-violation {
+  background: #fee2e2;
+  color: #7f1d1d;
 }
 
 .audit-status {

@@ -1,6 +1,6 @@
 import { WEIGHTS } from './constants.js';
 
-const STORAGE_KEY = 'scheduler_state';
+export const STORAGE_KEY = 'scheduler_state';
 
 // ─── LocalStorage Persistence ───────────────────────────────────────────────
 
@@ -8,6 +8,10 @@ function saveState() {
   const rows = document.querySelectorAll('#divisionTable tbody tr:not(.div-weights-row)');
   const divisions = [];
   for (const tr of rows) {
+    const weightOverrides = {};
+    for (const input of tr.nextElementSibling.querySelectorAll('[data-weight]')) {
+      weightOverrides[input.dataset.weight] = input.value;
+    }
     const uncheckedFields = [];
     for (const cb of tr.querySelectorAll('.div-fields input[type="checkbox"]')) {
       if (!cb.checked) uncheckedFields.push(cb.value);
@@ -22,7 +26,8 @@ function saveState() {
       gamesPerTeam: tr.querySelector('.div-games').value,
       leagueSplit: tr.querySelector('.div-league').checked,
       uncheckedFields,
-      excludedDays
+      excludedDays,
+      weightOverrides
     });
   }
 
@@ -35,7 +40,8 @@ function saveState() {
   const state = {
     divisions,
     tsv: document.getElementById('tsvInput').value,
-    weights
+    weights,
+    fileName: document.getElementById('fileName').textContent
   };
 
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* quota exceeded */ }
@@ -48,9 +54,20 @@ function loadState() {
 }
 
 let saveTimer;
-function debouncedSave() {
+function cancelSave() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveState, 500);
+  saveTimer = undefined;
 }
 
-export { saveState, loadState, debouncedSave };
+function flushSave() {
+  if (saveTimer === undefined) return;
+  cancelSave();
+  saveState();
+}
+
+function debouncedSave() {
+  cancelSave();
+  saveTimer = setTimeout(flushSave, 500);
+}
+
+export { loadState, debouncedSave, cancelSave, flushSave };

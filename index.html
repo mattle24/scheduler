@@ -115,7 +115,7 @@
         <p><strong>7. Rebalance home/away.</strong> After all field time changes are final, the scheduler does one last pass to fix any home/away imbalances that field consolidation may have introduced.</p>
         <p><strong>8. Score and compare.</strong> Every schedule is scored on things like: Are games spread evenly across weekends? Do teams get a fair mix of available field times and fields? Are there awkward back-to-back situations? The Sat/Sun Balance card shows the Saturday/Sunday percentage split for the team furthest from 50/50. You can adjust how much each factor matters using the scheduling priorities above.</p>
         <p><strong>9. Coordinate across divisions.</strong> When scheduling multiple age groups, divisions are scheduled in priority order (top to bottom in the table). After the first pass, the scheduler goes back and re-optimizes each division, trying to group games from the same division together on each field — which makes life easier for umpires and families.</p>
-      <p><strong>10. Review and edit.</strong> In Results, check each division’s rest and day-of-week balance, scan opponents and tight stretches on the timeline, and review how often each pair of teams meets. In the Rest and Balance Audit, tolerance controls how far team counts can differ from their division averages before they are flagged. They leave scheduling priorities and hard rules in effect. Open a game from the timeline to preview a move or swap in Edit, including across divisions. Slot edits change when and where teams play. Pairings are set during generation. Applying or undoing a change updates Results and the CSV immediately. The latest schedule restores after refresh when browser storage is available. Undo history lasts for the current session. Setup changes take effect when you generate again.</p>
+      <p><strong>10. Review and edit.</strong> In Results, check each division’s rest and day-of-week balance, scan the season’s opponents and select each team’s game density tally to inspect tight stretches, and review how often each pair of teams meets. In the Rest and Balance Audit, tolerance controls how far team counts can differ from their division averages before they are flagged. They leave scheduling priorities and hard rules in effect. Open a game from a game density tally to preview a move or swap in Edit, including across divisions. Slot edits change when and where teams play. Pairings are set during generation. Applying or undoing a change updates Results and the CSV immediately. Setup and saved schedule changes sync across open tabs and windows in the same browser profile when browser storage is available. The latest saved schedule also restores after refresh. Undo history starts fresh when a schedule is loaded from storage. Setup changes take effect when you generate again.</p>
       </div>
     </div>
   </div>
@@ -128,6 +128,6 @@
 <div id="results" class="hidden"></div>
 <div id="editSchedule" class="schedule-ui hidden"></div>
 
-<script type="module" src="js/ui.js?v=16"></script>
+<script type="module" src="js/ui.js?v=17"></script>
 </body>
 </html>

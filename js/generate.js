@@ -1,14 +1,13 @@
-import { startSchedule } from './scheduleSession.js';
+import { hasSchedule, startSchedule } from './scheduleSession.js';
 import { WEIGHTS } from './constants.js';
 import { parseTSV } from './parser.js?v=3';
 import { buildSchedule } from './builder.js?v=3';
 import { scoreCrossfieldDivisionClustering, scoreDetails, scoreWeekendOtherDivField } from './scoring.js';
-import { readDivisions, readDivWeightOverrides, syncWeights } from './divisions.js?v=4';
+import { readDivisions, readDivWeightOverrides, syncWeights } from './divisions.js?v=5';
 import { showError, clearError } from './render.js?v=3';
 
 function generate() {
   clearError();
-  const hadSchedule = !document.getElementById('editTab').disabled;
   document.getElementById('editTab').disabled = true;
   document.getElementById('results').classList.add('hidden');
   document.getElementById('resultsTab').disabled = true;
@@ -52,7 +51,10 @@ function generate() {
         }
       }
 
-      const mainRows = document.querySelectorAll('#divisionTable tbody tr:not(.div-weights-row)');
+      const divisionWeights = Array.from(
+        document.querySelectorAll('#divisionTable tbody tr:not(.div-weights-row)'),
+        readDivWeightOverrides
+      );
 
       for (let i = 0; i < divs.length; i++) {
         const div = divs[i];
@@ -64,7 +66,7 @@ function generate() {
         );
 
         // Read per-division weight overrides from the weights panel for this row
-        const divWeightOverrides = readDivWeightOverrides(mainRows[i]);
+        const divWeightOverrides = divisionWeights[i];
 
         // Phase 1: Build
         statusBox.innerHTML = `
@@ -132,7 +134,7 @@ function generate() {
               .filter((_, j) => j !== i)
               .flatMap(r => r.schedule.map(g => ({ ...g, division: r.division.name })));
 
-            const divWeightOverrides = readDivWeightOverrides(mainRows[i]);
+            const divWeightOverrides = divisionWeights[i];
             const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, updateProgress,
               { leagueSplit: div.leagueSplit, slotScarcity, otherDivisionGames, weights: divWeightOverrides });
             completedPasses++;
@@ -179,8 +181,8 @@ function generate() {
 
     } catch (e) {
       statusBox.classList.add('hidden');
-      document.getElementById('resultsTab').disabled = !hadSchedule;
-      document.getElementById('editTab').disabled = !hadSchedule;
+      document.getElementById('resultsTab').disabled = !hasSchedule();
+      document.getElementById('editTab').disabled = !hasSchedule();
       showError(e.message);
     }
   }, 50);

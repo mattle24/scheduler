@@ -1,12 +1,13 @@
 import { restoreSchedule, clearSchedule } from './scheduleSession.js';
-import { loadState, debouncedSave } from './state.js';
+import { SCHEDULE_STORAGE_KEY } from './scheduleStorage.js';
+import { STORAGE_KEY, loadState, debouncedSave, cancelSave, flushSave } from './state.js';
 import {
   addDivisionRow, removeDivisionRow, buildPenaltyGrid,
   updateFieldChoices, resetWeights, togglePenalties,
   toggleDivWeights, clearCachedFields, readDivisions
-} from './divisions.js?v=4';
+} from './divisions.js?v=5';
 import { downloadCSV, showError, clearError } from './render.js?v=3';
-import { generate } from './generate.js?v=9';
+import { generate } from './generate.js?v=10';
 import { parseTSV } from './parser.js?v=3';
 import { parseDate, dateStr, formatTimeDisplay } from './utils.js';
 
@@ -138,61 +139,47 @@ function updateReadiness() {
   }));
 }
 
+let previewTimer;
+let uploadReader;
+
 function restoreState(state) {
-  // Restore TSV first so field checkboxes can populate
-  if (state.tsv) {
-    document.getElementById('tsvInput').value = state.tsv;
-    updateFieldChoices();
+  clearTimeout(previewTimer);
+  uploadReader?.abort();
+  uploadReader = undefined;
+  const tbody = document.querySelector('#divisionTable tbody');
+  tbody.replaceChildren();
+  document.getElementById('tsvInput').value = state?.tsv ?? '';
+  document.getElementById('fileName').textContent = state?.fileName ?? '';
+  document.getElementById('tsvFile').value = '';
+  clearCachedFields();
+  updateFieldChoices();
+
+  for (const input of document.querySelectorAll('#penaltyGrid input')) {
+    input.value = state?.weights?.[input.id.slice(2)] ?? input.defaultValue;
   }
 
-  // Restore penalty weights
-  if (state.weights) {
-    for (const key in state.weights) {
-      const el = document.getElementById('w_' + key);
-      if (el) el.value = state.weights[key];
+  if (!state?.divisions?.length) addDivisionRow();
+  for (const div of state?.divisions ?? []) {
+    addDivisionRow(div.name, div.numTeams, div.gamesPerTeam, div.leagueSplit, div.excludedDays);
+    const weightsRow = tbody.lastElementChild;
+    for (const cb of weightsRow.previousElementSibling.querySelectorAll('.div-fields input[type="checkbox"]')) {
+      cb.checked = !div.uncheckedFields?.includes(cb.value);
+    }
+    for (const input of weightsRow.querySelectorAll('[data-weight]')) {
+      input.value = div.weightOverrides?.[input.dataset.weight] ?? '';
     }
   }
 
-  // Restore divisions
-  if (state.divisions && state.divisions.length > 0) {
-    const tbody = document.querySelector('#divisionTable tbody');
-    tbody.innerHTML = '';
-    for (const div of state.divisions) {
-      addDivisionRow(div.name, div.numTeams, div.gamesPerTeam, div.leagueSplit, div.excludedDays || []);
-      // Uncheck fields that were unchecked
-      const tr = tbody.lastElementChild;
-      for (const cb of tr.querySelectorAll('.div-fields input[type="checkbox"]')) {
-        if (div.uncheckedFields.includes(cb.value)) cb.checked = false;
-      }
-    }
-  }
+  updateAvailabilityPreview();
+  updateReadiness();
 }
 
 function clearInputs() {
   if (!window.confirm('Clear all inputs and results? This cannot be undone.')) return;
-  // Reset divisions to one empty row
-  const tbody = document.querySelector('#divisionTable tbody');
-  tbody.innerHTML = '';
-  clearCachedFields();
-  addDivisionRow();
-
-  // Clear TSV
-  document.getElementById('tsvInput').value = '';
-  document.getElementById('fileName').textContent = '';
-  document.getElementById('tsvFile').value = '';
-  updateAvailabilityPreview();
-  updateReadiness();
-
-  // Reset penalty weights to defaults
-  resetWeights();
-
-  // Clear results and errors
-  document.getElementById('results').classList.add('hidden');
-  document.getElementById('resultsTab').disabled = true;
-  showView('setup');
+  cancelSave();
+  restoreState(null);
   clearError();
-
-  try { localStorage.removeItem('scheduler_state'); } catch {}
+  try { localStorage.removeItem(STORAGE_KEY); } catch {}
   clearSchedule();
 }
 
@@ -208,6 +195,9 @@ function showView(view) {
 }
 
 function loadSample() {
+  uploadReader?.abort();
+  document.getElementById('fileName').textContent = '';
+  document.getElementById('tsvFile').value = '';
   // Clear existing division rows and add two sample divisions
   const tbody = document.querySelector('#divisionTable tbody');
   tbody.innerHTML = '';
@@ -252,7 +242,7 @@ function handleFileUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
 
-  document.getElementById('fileName').textContent = file.name;
+  uploadReader?.abort();
 
   if (file.name.match(/\.xlsx?$/i)) {
     showError('Excel files are not supported. Copy and paste the spreadsheet cells, or save the sheet as a tab-separated text file and upload it.');
@@ -261,8 +251,10 @@ function handleFileUpload(e) {
     return;
   }
 
-  const reader = new FileReader();
+  const reader = uploadReader = new FileReader();
   reader.onload = (evt) => {
+    uploadReader = undefined;
+    document.getElementById('fileName').textContent = file.name;
     document.getElementById('tsvInput').value = evt.target.result;
     document.getElementById('availabilitySource').open = false;
     updateFieldChoices();
@@ -275,7 +267,7 @@ function handleFileUpload(e) {
 
 // Expose functions referenced by onclick attributes in HTML
 window.generate = generate;
-window.addDivisionRow = (...args) => { addDivisionRow(...args); updateReadiness(); };
+window.addDivisionRow = (...args) => { addDivisionRow(...args); updateReadiness(); debouncedSave(); };
 window.clearInputs = clearInputs;
 window.resetWeights = resetWeights;
 window.togglePenalties = togglePenalties;
@@ -288,34 +280,51 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('setupTab').addEventListener('click', () => showView('setup'));
   document.getElementById('editTab').addEventListener('click', () => showView('edit'));
   document.getElementById('resultsTab').addEventListener('click', () => showView('results'));
+  let remoteScheduleUpdate = false;
   document.addEventListener('scheduler:results-ready', () => {
     document.getElementById('resultsTab').disabled = false;
     document.getElementById('editTab').disabled = false;
-    showView('results');
+    if (!remoteScheduleUpdate) showView('results');
+  });
+  document.addEventListener('scheduler:schedule-cleared', () => {
+    if (!document.getElementById('setupTab').classList.contains('active')) showView('setup');
   });
   buildPenaltyGrid();
-
-  // Restore saved state or start with one empty division row
-  const saved = loadState();
-  if (saved) {
-    restoreState(saved);
-  } else {
-    addDivisionRow();
-  }
-
-  updateAvailabilityPreview();
-  updateReadiness();
+  restoreState(loadState());
   restoreSchedule();
 
-  // Update field checkboxes when TSV changes
-  let debounceTimer;
+  window.addEventListener('storage', (event) => {
+    if (event.storageArea !== localStorage) return;
+    if (event.key === STORAGE_KEY || event.key === null) {
+      // A newer write may have landed while this event was queued.
+      if (event.key === null || localStorage.getItem(STORAGE_KEY) === event.newValue) {
+        cancelSave();
+        restoreState(loadState());
+      }
+    }
+    if (event.key === SCHEDULE_STORAGE_KEY || event.key === null) {
+      if (event.key === null || localStorage.getItem(SCHEDULE_STORAGE_KEY) === event.newValue) {
+        remoteScheduleUpdate = true;
+        try {
+          restoreSchedule({ remote: true });
+        } finally {
+          remoteScheduleUpdate = false;
+        }
+      }
+    }
+  });
+  window.addEventListener('pagehide', flushSave);
+
   document.getElementById('tsvInput').addEventListener('input', () => {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      updateFieldChoices();
+    uploadReader?.abort();
+    document.getElementById('fileName').textContent = '';
+    document.getElementById('tsvFile').value = '';
+    clearTimeout(previewTimer);
+    updateFieldChoices();
+    debouncedSave();
+    previewTimer = setTimeout(() => {
       updateAvailabilityPreview();
       updateReadiness();
-      debouncedSave();
     }, 300);
   });
 

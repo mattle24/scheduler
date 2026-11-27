@@ -42,7 +42,7 @@ function buildPenaltyGrid() {
       wrapper.append(desc);
     }
     const input = document.createElement('input');
-    Object.assign(input, { type: 'number', id: 'w_' + key, min: '0', max: '50', value: String(WEIGHTS[key]), step: '1' });
+    Object.assign(input, { type: 'number', id: 'w_' + key, min: '0', max: '50', defaultValue: String(WEIGHTS[key]), step: '1' });
     grid.append(wrapper, input);
   }
 }
@@ -79,9 +79,9 @@ function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit, excludedDays)
   ).join('');
 
   tr.innerHTML = `
-    <td><input type="text" class="div-name" placeholder="e.g. Majors" value="${name || ''}"></td>
-    <td><input type="number" class="div-teams" min="2" max="30" value="${numTeams || ''}"></td>
-    <td><input type="number" class="div-games" min="1" max="100" value="${gamesPerTeam || ''}"></td>
+    <td><input type="text" class="div-name" placeholder="e.g. Majors"></td>
+    <td><input type="number" class="div-teams" min="2" max="30"></td>
+    <td><input type="number" class="div-games" min="1" max="100"></td>
     <td><div class="div-fields"></div></td>
     <td class="division-options">
       <details class="division-restrictions">
@@ -97,6 +97,9 @@ function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit, excludedDays)
       <button class="btn-remove" onclick="removeDivisionRow(this)" title="Remove division">&times;</button>
     </td>
   `;
+  tr.querySelector('.div-name').value = name ?? '';
+  tr.querySelector('.div-teams').value = numTeams ?? '';
+  tr.querySelector('.div-games').value = gamesPerTeam ?? '';
 
   // Build the weights override row (hidden by default)
   const weightsTr = document.createElement('tr');
@@ -131,7 +134,6 @@ function addDivisionRow(name, numTeams, gamesPerTeam, leagueSplit, excludedDays)
   tbody.appendChild(tr);
   tbody.appendChild(weightsTr);
   populateFieldCheckboxes(tr);
-  debouncedSave();
 }
 
 function removeDivisionRow(btn) {

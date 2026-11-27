@@ -113,7 +113,8 @@ function makeTable(metrics, rows, tolerance, showDetails) {
       if (status) {
         const label = element('span', status);
         label.className = 'audit-status';
-        cell.classList.add(status === 'Below range' ? 'audit-below' : 'audit-above');
+        cell.classList.add(status === 'Hard violation' ? 'audit-violation' :
+          status === 'Below range' ? 'audit-below' : 'audit-above');
         cell.append(label);
       }
     }
