@@ -15,6 +15,11 @@ const DAY_METRICS = [
 const COMPARABLE_METRICS = [...GAP_METRICS, ...DAY_METRICS];
 const DEFAULT_TOLERANCE = 1;
 
+function metricLabel({ id, label }) {
+  if (!id.startsWith('gap-')) return label;
+  return label === '1' ? '1 day apart' : `${label} days apart`;
+}
+
 export function getScheduleAudit(schedule, numTeams) {
   const byTeam = Array.from({ length: numTeams }, () => []);
   for (const game of schedule) {
@@ -54,14 +59,14 @@ function gameLabel(game, team) {
   return `${game.date} · ${formatTimeDisplay(game.time)} · ${game.field} · vs ${opponent + 1}B`;
 }
 
-function makeTable(metrics, rows, tolerances, showDetails) {
+function makeTable(metrics, rows, tolerance, showDetails) {
   const wrapper = element('div');
   wrapper.className = 'team-summary-scroll';
   const table = element('table');
   table.className = 'team-summary-table audit-table';
   const header = table.createTHead().insertRow();
-  for (const name of ['Team', ...metrics.map(metric => metric.label)]) {
-    const th = element('th', name);
+  for (const label of ['Team', ...metrics.map(metric => metric.label)]) {
+    const th = element('th', label);
     th.scope = 'col';
     header.append(th);
   }
@@ -70,18 +75,12 @@ function makeTable(metrics, rows, tolerances, showDetails) {
     if (id === 'doubleheaders' || !rows.length) return null;
     return rows.reduce((sum, row) => sum + row[id].length, 0) / rows.length;
   });
-  const summary = table.createTFoot();
-  for (const [label, describe] of [
-    ['Division avg.', (_, index) => averages[index]?.toFixed(1)],
-    ['Tolerance', ({ id }) => id === 'doubleheaders' ? null : `±${tolerances.get(id) ?? DEFAULT_TOLERANCE}`]
-  ]) {
-    const tr = summary.insertRow();
-    const th = element('th', label);
-    th.scope = 'row';
-    tr.append(th);
-    for (const [index, metric] of metrics.entries()) {
-      tr.append(element('td', describe(metric, index) ?? '—'));
-    }
+  const summary = table.createTFoot().insertRow();
+  const averageLabel = element('th', 'Division avg.');
+  averageLabel.scope = 'row';
+  summary.append(averageLabel);
+  for (const average of averages) {
+    summary.append(element('td', average?.toFixed(1) ?? '—'));
   }
 
   const body = table.createTBody();
@@ -90,17 +89,17 @@ function makeTable(metrics, rows, tolerances, showDetails) {
     const th = element('th', `${team + 1}B`);
     th.scope = 'row';
     tr.append(th);
-    for (const [index, { id, label }] of metrics.entries()) {
+    for (const [index, metric] of metrics.entries()) {
+      const { id } = metric;
       const groups = stats[id];
       const count = groups.length;
       const average = averages[index];
-      const tolerance = tolerances.get(id) ?? DEFAULT_TOLERANCE;
       let status = '';
       if (id === 'doubleheaders' && count) status = 'Hard violation';
       if (average !== null && count > average + tolerance) status = 'Above range';
       if (average !== null && count < average - tolerance) status = 'Below range';
       const cell = tr.insertCell();
-      const metricName = id.startsWith('gap-') ? `${label} days apart` : label;
+      const metricName = metricLabel(metric);
       if (count) {
         const button = element('button', String(count));
         button.type = 'button';
@@ -124,7 +123,7 @@ function makeTable(metrics, rows, tolerances, showDetails) {
 }
 
 export function renderScheduleAudit(container, schedule, numTeams, { viewState = {} } = {}) {
-  const tolerances = viewState.auditTolerances ??= new Map();
+  let tolerance = viewState.auditTolerance ?? DEFAULT_TOLERANCE;
   const rows = getScheduleAudit(schedule, numTeams);
   const card = element('section');
   card.className = 'card schedule-audit';
@@ -137,23 +136,17 @@ export function renderScheduleAudit(container, schedule, numTeams, { viewState =
 
   const controls = element('div');
   controls.className = 'audit-controls';
-  const metricLabel = element('label', 'Metric');
-  const select = element('select');
-  for (const { id, label } of COMPARABLE_METRICS) {
-    const option = element('option', id.startsWith('gap-') ? `${label} days apart` : label);
-    option.value = id;
-    select.append(option);
-  }
-  metricLabel.append(select);
-  const toleranceLabel = element('label', 'Tolerance (± games)');
+  const toleranceLabel = element('label', 'Tolerance');
   const input = element('input');
   input.type = 'number';
   input.min = '0';
   input.step = '1';
   input.required = true;
-  input.value = DEFAULT_TOLERANCE;
+  input.value = tolerance;
   toleranceLabel.append(input);
-  controls.append(metricLabel, toleranceLabel);
+  controls.append(toleranceLabel, element('p',
+    'Both tables flag counts that differ from their column’s division average by more than this amount. Same-day doubleheaders are always flagged.'
+  ));
   const tables = element('div');
   const details = element('dialog');
   details.className = 'score-details-drawer audit-details';
@@ -178,29 +171,30 @@ export function renderScheduleAudit(container, schedule, numTeams, { viewState =
   }
 
   function renderTables() {
+    const scrollPositions = Array.from(tables.children)
+      .filter(child => child.classList.contains('team-summary-scroll'))
+      .map(wrapper => wrapper.scrollLeft);
     tables.replaceChildren(
       element('h3', 'Days Between Games'),
       element('p', 'Counts use consecutive games per team. Gap bands overlap. Doubleheaders count dates with two or more games.'),
-      makeTable([{ id: 'doubleheaders', label: 'Doubleheaders' }, ...GAP_METRICS], rows, tolerances, showDetails),
+      makeTable([{ id: 'doubleheaders', label: 'Doubleheaders' }, ...GAP_METRICS], rows, tolerance, showDetails),
       element('h3', 'Games by Day of Week'),
-      makeTable(DAY_METRICS, rows, tolerances, showDetails)
+      makeTable(DAY_METRICS, rows, tolerance, showDetails)
     );
+    tables.querySelectorAll('.team-summary-scroll').forEach((wrapper, index) => {
+      wrapper.scrollLeft = scrollPositions[index] ?? 0;
+    });
   }
 
-  select.addEventListener('change', () => {
-    viewState.auditMetric = select.value;
-    input.value = tolerances.get(select.value) ?? DEFAULT_TOLERANCE;
-  });
-  input.addEventListener('change', () => {
-    if (!input.checkValidity()) {
-      input.value = tolerances.get(select.value) ?? DEFAULT_TOLERANCE;
-      return;
-    }
-    tolerances.set(select.value, input.valueAsNumber);
+  input.addEventListener('input', () => {
+    if (!input.checkValidity()) return;
+    tolerance = input.valueAsNumber;
+    viewState.auditTolerance = tolerance;
     renderTables();
   });
-  select.value = viewState.auditMetric ?? COMPARABLE_METRICS[0].id;
-  input.value = tolerances.get(select.value) ?? DEFAULT_TOLERANCE;
+  input.addEventListener('change', () => {
+    if (!input.checkValidity()) input.value = tolerance;
+  });
   renderTables();
   card.append(controls, tables, details);
   container.append(card);
