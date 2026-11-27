@@ -1,4 +1,7 @@
 import { renderCalendar } from './calendar.js';
+import { renderScheduleAudit } from './scheduleAudit.js';
+import { renderOpponentTimeline } from './opponentTimeline.js';
+import { renderMatchupMatrix } from './matchupMatrix.js';
 import { DAYS } from './constants.js';
 import { daysBetween, slotBucket, timeSortKey, formatTimeDisplay, isoWeek, addDays, getWeekendGroup } from './utils.js';
 
@@ -7,7 +10,7 @@ function setLastCSV(csv) { lastCSV = csv; }
 
 // ─── Rendering ───────────────────────────────────────────────────────────────
 
-function renderMultiDivisionResults(divisionResults, allSlots) {
+function renderMultiDivisionResults(divisionResults, allSlots, { reviewState = [], onEditGame } = {}) {
   const container = document.getElementById('results');
   container.innerHTML = '';
 
@@ -59,7 +62,18 @@ function renderMultiDivisionResults(divisionResults, allSlots) {
     intro.appendChild(heading);
     section.appendChild(intro);
 
-    renderDivisionBlock(section, dr.schedule, dr.details, dr.division.numTeams, dr.division.leagueSplit, dr.slots);
+    const { numTeams, leagueSplit } = dr.division;
+    const review = reviewState[i] ??= { audit: {}, timeline: {} };
+    renderScheduleAudit(section, dr.schedule, numTeams, { viewState: review.audit });
+    const timelineCard = document.createElement('section');
+    timelineCard.className = 'card';
+    renderOpponentTimeline(
+      timelineCard, dr.schedule, numTeams,
+      onEditGame && (game => onEditGame(i, game)), review.timeline
+    );
+    section.append(timelineCard);
+    renderMatchupMatrix(section, dr.schedule, numTeams, leagueSplit);
+    renderDivisionBlock(section, dr.schedule, dr.details, numTeams, leagueSplit, dr.slots);
     const calendarCard=document.createElement('div'); calendarCard.className='card';
     const title=document.createElement('h2'); title.textContent=dr.division.name+' Schedule'; calendarCard.append(title);
     renderCalendar(calendarCard,dr.schedule,allSlots.filter(s=>dr.division.fields.includes(s.field)&&!dr.division.excludedDays.includes(s.dayOfWeek)),{numTeams:dr.division.numTeams,divisionIndex:i});

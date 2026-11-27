@@ -1,0 +1,28 @@
+.matchup-matrix ul {
+  padding-inline-start: 1.25rem;
+}
+
+.matchup-matrix .matchup-count {
+  min-width: 2rem;
+  min-height: 2rem;
+  color: inherit;
+}
+
+.matchup-matrix .matchup-count[data-status="below"] {
+  background: #e3f3e9;
+  color: #185735;
+}
+
+.matchup-matrix .matchup-count[data-status="above"] {
+  background: #fce5e3;
+  color: #912922;
+}
+
+.matchup-count[aria-pressed="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.matchup-matrix-details {
+  margin-top: 1rem;
+}

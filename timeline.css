@@ -1,0 +1,50 @@
+.timeline-window-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  margin-bottom: .75rem;
+}
+.timeline-window-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+}
+.timeline-window-controls input { width: 4rem; }
+.timeline-grid {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.timeline-table .timeline-team {
+  position: sticky;
+  left: 0;
+  padding: 0 .6rem;
+  background: var(--card-bg);
+}
+.timeline-match {
+  display: block;
+  width: 100%;
+  min-height: 1.75rem;
+  padding: .15rem .2rem;
+  border: 1px solid var(--border);
+  border-radius: .25rem;
+  background: var(--card-bg);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.timeline-match-tight {
+  background: #fff0c2;
+  color: #593300;
+  border-color: #a76e18;
+  font-weight: 700;
+}
+.timeline-game-details { margin-top: 1rem; }
+.timeline-game-details li { margin-bottom: .35rem; }
+.timeline-game-details li button { margin-left: .5rem; }
+@media (prefers-color-scheme: dark) {
+  .timeline-match-tight {
+    background: #4e3109;
+    color: #ffdfa0;
+    border-color: #ba8939;
+  }
+}

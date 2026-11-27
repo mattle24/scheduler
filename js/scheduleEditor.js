@@ -597,4 +597,18 @@ export function mountEditor(session, onChange) {
     render(true);
   });
   render(true);
+  return function selectGameForReview(divisionIndex, game) {
+    const match = games.find((item) =>
+      item.division === String(divisionIndex) &&
+      slotKey(item) === slotKey(game) &&
+      item.home === game.home + 1 && item.away === game.away + 1
+    );
+    if (!match) return false;
+    selectedGameId = match.id;
+    targetKey = null;
+    notice = '';
+    weekIndex = Math.floor((dayNumber(match.date) - dayNumber(weeks[0])) / 7);
+    render(true);
+    return true;
+  };
 }

@@ -25,7 +25,16 @@ function refreshResults() {
   for (const r of session.results)
     r.details = scoreDetails(r.schedule, r.division.numTeams, r.slots);
   setLastCSV(formatMultiDivisionCSV(session.results));
-  renderMultiDivisionResults(session.results, session.allSlots);
+  renderMultiDivisionResults(session.results, session.allSlots, {
+    reviewState: session.reviewState,
+    onEditGame(divisionIndex, game) {
+      if (session.selectGameForReview(divisionIndex, game)) {
+        const tab = document.getElementById('editTab');
+        tab.click();
+        tab.focus();
+      }
+    }
+  });
 }
 export function startSchedule(results, allSlots, baseWeights = { ...WEIGHTS }, save = true) {
   session = {
@@ -42,9 +51,9 @@ export function startSchedule(results, allSlots, baseWeights = { ...WEIGHTS }, s
     })),
     allSlots,
     baseWeights: { ...baseWeights },
+    reviewState: [],
   };
-  refreshResults();
-  mountEditor(session, (games) => {
+  session.selectGameForReview = mountEditor(session, (games) => {
     session.results.forEach((r, i) => {
       r.schedule = games
         .filter((g) => g.division === String(i))
@@ -53,6 +62,7 @@ export function startSchedule(results, allSlots, baseWeights = { ...WEIGHTS }, s
     refreshResults();
     persist();
   });
+  refreshResults();
   if (save) persist();
   document.dispatchEvent(new Event('scheduler:results-ready'));
 }

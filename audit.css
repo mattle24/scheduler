@@ -1,0 +1,44 @@
+.audit-controls {
+  display: flex;
+  gap: .75rem;
+  flex-wrap: wrap;
+  margin-block: .75rem;
+}
+
+.audit-controls label {
+  display: grid;
+  gap: .25rem;
+  font-weight: 600;
+}
+
+.audit-controls input { width: 7rem; }
+
+.audit-table td.audit-above {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+.audit-table td.audit-below {
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.audit-status {
+  display: block;
+  font-size: .72rem;
+}
+
+.audit-count {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: .15rem .4rem;
+  text-decoration: underline;
+}
+
+.schedule-audit h3 { margin-top: 1rem; }
+.schedule-audit .team-summary-scroll { margin-top: .5rem; }
+.audit-details ul { margin: 1rem 0 0 1.25rem; }
+.audit-details li + li { margin-top: .5rem; }
