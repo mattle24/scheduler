@@ -5,6 +5,9 @@ import { SCHEDULE_STORAGE_KEY, saveScheduleSnapshot, decodeSchedule } from './sc
 import { mountEditor } from './scheduleEditor.js';
 
 let session = null;
+export function hasSchedule() {
+  return session !== null;
+}
 function storageNotice(message = '') {
   const el = document.getElementById('scheduleStorageNotice');
   el.textContent = message;
@@ -66,23 +69,33 @@ export function startSchedule(results, allSlots, baseWeights = { ...WEIGHTS }, s
   if (save) persist();
   document.dispatchEvent(new Event('scheduler:results-ready'));
 }
-export function restoreSchedule() {
+export function restoreSchedule({ remote = false } = {}) {
   try {
     const text = localStorage.getItem(SCHEDULE_STORAGE_KEY);
-    if (!text) return;
+    if (!text) {
+      if (remote) clearSchedule({ remote });
+      return;
+    }
     const { results, allSlots, baseWeights } = decodeSchedule(text);
     startSchedule(results, allSlots, baseWeights, false);
+    storageNotice();
   } catch {
-    clearSchedule();
+    clearSchedule({ remote });
     storageNotice('The saved schedule could not be restored. Generate a new schedule from Setup.');
   }
 }
-export function clearSchedule() {
+export function clearSchedule({ remote = false } = {}) {
   session = null;
-  try {
-    localStorage.removeItem(SCHEDULE_STORAGE_KEY);
-  } catch {}
+  if (!remote) {
+    try {
+      localStorage.removeItem(SCHEDULE_STORAGE_KEY);
+    } catch {}
+  }
+  setLastCSV('');
+  document.getElementById('results').replaceChildren();
   document.getElementById('editSchedule').replaceChildren();
   document.getElementById('editTab').disabled = true;
+  document.getElementById('resultsTab').disabled = true;
   storageNotice();
+  document.dispatchEvent(new Event('scheduler:schedule-cleared'));
 }
