@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
 <link rel="stylesheet" href="schedule.css">
-<link rel="stylesheet" href="styles.css?v=16">
+<link rel="stylesheet" href="styles.css?v=18">
 <link rel="stylesheet" href="audit.css">
 <link rel="stylesheet" href="timeline.css">
 <link rel="stylesheet" href="matchup-matrix.css">
@@ -35,16 +35,20 @@
     <button class="btn-secondary btn-sm" onclick="loadSample()">Load sample data</button>
     <span>Try an example with fields and divisions. This replaces your current setup.</span>
   </div>
-  <label for="tsvInput">Paste from a spreadsheet or upload a file</label>
-  <p class="availability-hint" id="availabilityHint">Copy the date and field columns, including headers, from your spreadsheet and paste them in the box below, or upload a tab-separated text file. Leave unavailable fields blank; separate multiple times with commas (for example, 9:00am, 1:00pm).</p>
+  <span class="availability-input-label">Paste from a spreadsheet or upload a file</span>
+  <p class="availability-hint" id="availabilityHint">Copy the date and field columns, including headers, from your spreadsheet and paste them in the source box below, or upload a tab-separated text file. Leave unavailable fields blank; separate multiple times with commas (for example, 9:00am, 1:00pm).</p>
   <div class="file-upload-row">
     <input type="file" id="tsvFile" accept=".tsv,.csv,.txt,.xls,.xlsx" class="file-input">
     <label for="tsvFile" class="btn-secondary btn-sm file-label">Upload File</label>
     <span id="fileName" class="file-name"></span>
     <a class="template-link" href="data:text/tab-separated-values;charset=utf-8,Date%09Field%201%09Field%202%0A4%2F11%2F2026%099%3A00am%2C%201%3A00pm%0910%3A00am%0A4%2F12%2F2026%0910%3A00am%09" download="field-availability-template.tsv">Download template</a>
   </div>
+  <div id="availabilityPreview" class="availability-preview hidden" aria-live="polite"></div>
+  <details class="availability-source" id="availabilitySource" open>
+  <summary>View or edit source</summary>
+  <label for="tsvInput" class="source-label">Tab-separated availability data</label>
   <textarea id="tsvInput" aria-describedby="availabilityHint availabilityPreview" rows="8" placeholder="Date&#9;Field 1&#9;Field 2&#10;4/11/2026&#9;9:00am, 1:00pm&#9;10:00am&#10;4/12/2026&#9;10:00am&#9;"></textarea>
-  <div id="availabilityPreview" class="availability-preview hidden" role="status" aria-live="polite"></div>
+  </details>
   </section>
   <section class="setup-step card" aria-labelledby="divisionsTitle">
     <h3 id="divisionsTitle" class="section-heading section-label"><span class="step-number">2</span>Divisions</h3>
@@ -124,6 +128,6 @@
 <div id="results" class="hidden"></div>
 <div id="editSchedule" class="schedule-ui hidden"></div>
 
-<script type="module" src="js/ui.js?v=14"></script>
+<script type="module" src="js/ui.js?v=16"></script>
 </body>
 </html>

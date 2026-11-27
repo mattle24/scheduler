@@ -8,23 +8,91 @@ import {
 import { downloadCSV, showError, clearError } from './render.js?v=3';
 import { generate } from './generate.js?v=9';
 import { parseTSV } from './parser.js?v=3';
+import { parseDate, dateStr, formatTimeDisplay } from './utils.js';
 
 function updateAvailabilityPreview() {
   const preview = document.getElementById('availabilityPreview');
   const text = document.getElementById('tsvInput').value;
   preview.classList.toggle('hidden', !text.trim());
   preview.classList.remove('invalid');
-  if (!text.trim()) { preview.textContent = ''; return; }
+  preview.replaceChildren();
+  if (!text.trim()) return;
   try {
     const slots = parseTSV(text);
     if (!slots.length) throw new Error('No available field times found.');
-    const fields = [...new Set(slots.map(slot => slot.field))];
-    const dates = slots.map(slot => slot.date).sort();
-    const formatDate = date => new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: '2-digit', year: 'numeric' });
-    preview.textContent = `Found ${slots.length} available game ${slots.length === 1 ? 'time' : 'times'} from ${formatDate(dates[0])} to ${formatDate(dates[dates.length - 1])}. Fields with availability: ${fields.join(', ')}.`;
+    const lines = text.trim().split('\n').filter(line => line.trim());
+    const clean = value => (value || '').trim().replace(/^["']|["']$/g, '');
+    const first = lines[1].split('\t');
+    const offset = isNaN(parseDate(clean(first[0])).getTime()) && !isNaN(parseDate(clean(first[1])).getTime()) ? 1 : 0;
+    const fields = lines[0].split('\t').slice(1 + offset).map(clean);
+    const dates = [...new Set(lines.slice(1).map(line => clean(line.split('\t')[offset])).filter(Boolean).map(value => dateStr(parseDate(value))))].sort();
+    const title = document.createElement('h4');
+    title.className = 'availability-preview-title';
+    title.textContent = 'Availability preview';
+    const summary = document.createElement('p');
+    summary.className = 'availability-summary';
+    const years = new Set(dates.map(date => date.slice(0, 4)));
+    summary.textContent = `${years.size === 1 ? [...years][0] + ' · ' : ''}${dates.length} ${dates.length === 1 ? 'date' : 'dates'} · ${fields.length} ${fields.length === 1 ? 'field' : 'fields'} · ${slots.length} ${slots.length === 1 ? 'time' : 'times'}`;
+    const wrap = document.createElement('div');
+    wrap.className = 'availability-table-scroll';
+    wrap.setAttribute('role', 'region');
+    wrap.setAttribute('aria-label', 'Field availability preview');
+    wrap.tabIndex = 0;
+    const table = document.createElement('table');
+    table.className = 'availability-table';
+    const head = table.createTHead().insertRow();
+    for (const name of ['Date', ...fields]) {
+      const th = document.createElement('th');
+      th.scope = 'col';
+      th.textContent = name;
+      head.appendChild(th);
+    }
+    const byCell = new Map();
+    for (const slot of slots) {
+      const key = JSON.stringify([slot.date, slot.field]);
+      if (!byCell.has(key)) byCell.set(key, []);
+      byCell.get(key).push(slot.time);
+    }
+    const body = table.createTBody();
+    for (const date of dates) {
+      const row = body.insertRow();
+      const dateCell = document.createElement('th');
+      dateCell.scope = 'row';
+      dateCell.textContent = new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', ...(years.size > 1 ? { year: 'numeric' } : {}) });
+      if (body.rows.length > 7) row.hidden = true;
+      row.appendChild(dateCell);
+      for (const field of fields) {
+        const cell = row.insertCell();
+        const times = byCell.get(JSON.stringify([date, field])) || [];
+        if (!times.length) { cell.textContent = '—'; cell.className = 'availability-empty'; }
+        for (const time of times) {
+          const badge = document.createElement('span');
+          badge.className = 'availability-time';
+          badge.textContent = formatTimeDisplay(time).replace(/^0/, '');
+          cell.appendChild(badge);
+        }
+      }
+    }
+    wrap.appendChild(table);
+    preview.append(title, summary, wrap);
+    if (dates.length > 7) {
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'availability-show-all';
+      toggle.textContent = `Show all ${dates.length} dates`;
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.addEventListener('click', () => {
+        const expanded = toggle.getAttribute('aria-expanded') === 'true';
+        for (const row of [...body.rows].slice(7)) row.hidden = expanded;
+        toggle.setAttribute('aria-expanded', String(!expanded));
+        toggle.textContent = expanded ? `Show all ${dates.length} dates` : 'Show fewer dates';
+      });
+      preview.appendChild(toggle);
+    }
   } catch (err) {
     preview.classList.add('invalid');
     preview.textContent = `Check your availability: ${err.message}`;
+    document.getElementById('availabilitySource').open = true;
   }
 }
 
@@ -196,6 +264,7 @@ function handleFileUpload(e) {
   const reader = new FileReader();
   reader.onload = (evt) => {
     document.getElementById('tsvInput').value = evt.target.result;
+    document.getElementById('availabilitySource').open = false;
     updateFieldChoices();
     updateAvailabilityPreview();
     updateReadiness();

@@ -421,3 +421,39 @@ h1 { letter-spacing: -.02em; }
 #division-schedules .actions { margin-bottom: 1rem; }
 .download-csv { display: inline-flex; align-items: center; gap: .35rem; }
 .download-csv .material-symbols-outlined { font-size: 1.1rem; }
+
+/* Parsed field availability */
+.availability-input-label { display: block; font-weight: 600; }
+.availability-preview:not(.invalid) { padding: 0; background: transparent; color: inherit; }
+.availability-summary { margin: .75rem 0 .5rem; color: var(--muted); font-weight: 600; }
+.availability-table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; max-height: 28rem; }
+.availability-table { width: 100%; border-collapse: collapse; text-align: left; font-size: .85rem; }
+.availability-table th, .availability-table td { padding: .6rem .75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+.availability-table thead th { background: var(--bg); white-space: nowrap; }
+.availability-table tbody th { white-space: nowrap; font-weight: 600; }
+.availability-table tr:last-child > * { border-bottom: 0; }
+.availability-time { display: inline-block; margin: 0 .3rem .25rem 0; padding: .2rem .4rem; border: 1px solid var(--border); border-radius: 4px; white-space: nowrap; }
+.availability-empty { color: var(--muted); }
+.availability-source { margin-top: .75rem; }
+.availability-source summary { cursor: pointer; font-weight: 600; }
+.source-label { display: block; margin: .6rem 0 .3rem; }
+
+/* Keep the availability preview distinct from the app's global table styles. */
+.availability-preview:not(.invalid) { margin-top: 1rem; color: inherit; }
+.availability-preview-title { font-size: .95rem; font-weight: 650; margin: 0 0 .15rem; }
+.availability-summary { margin: 0 0 .65rem; font-size: .82rem; font-weight: 400; }
+.availability-table-scroll { max-height: none; background: var(--card-bg); }
+.availability-table { table-layout: fixed; }
+.availability-table th, .availability-table td { padding: .55rem .75rem; }
+.availability-table thead th { background: var(--bg); color: var(--muted); font-size: .75rem; text-transform: none; letter-spacing: normal; }
+.availability-table th:first-child { width: 155px; }
+.availability-table tbody th { background: transparent; color: inherit; font-size: .85rem; font-weight: 400; text-transform: none; letter-spacing: normal; }
+.availability-table .availability-time { margin: .1rem .3rem .1rem 0; background: rgba(45, 90, 39, .07); border-color: rgba(45, 90, 39, .12); border-radius: 4px; color: inherit; font-size: .8rem; }
+.availability-table .availability-empty { color: var(--muted); }
+.availability-table tbody tr[hidden] { display: none; }
+.availability-show-all { margin-top: .5rem; padding: .3rem 0; background: transparent; color: var(--primary); font-size: .82rem; }
+.availability-show-all:hover { text-decoration: underline; }
+@media (prefers-color-scheme: dark) {
+  .availability-table .availability-time { background: rgba(160, 200, 160, .1); border-color: rgba(160, 200, 160, .2); }
+  .availability-show-all { color: #a5d6a0; }
+}
