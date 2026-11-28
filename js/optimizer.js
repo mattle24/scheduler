@@ -1,17 +1,24 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-check
+/** @typedef {import('./types.js').Game & {weekendGroup: string|null, sortKey: string}} ScheduledGame */
+/** @typedef {import('./types.js').Slot} Slot */
+/** @typedef {import('./types.js').Game} Game */
+/** @typedef {import('./types.js').Weights} Weights */
 import { slotKey, timeSortKey, isoWeek, teamHasThreeInFourDays } from './utils.js';
 import { scoreCandidate, scoreCrossDivision } from './scoring.js';
 import { IncrementalScorer } from './incrementalScore.js';
 
 // Per-division score plus cross-division penalties against other divisions' games,
 // so post-greedy optimization doesn't undo cross-division clustering.
+/** @param {number} numTeams @param {Slot[]} slots @param {Weights} weights @param {Game[]|null} otherGames */
 function makeScorer(numTeams, slots, weights, otherGames) {
-  return sched => scoreCandidate(sched, numTeams, slots, weights) + scoreCrossDivision(sched, otherGames, weights);
+  return (/** @type {ScheduledGame[]} */ sched) => scoreCandidate(sched, numTeams, slots, weights) + scoreCrossDivision(sched, otherGames, weights);
 }
 
 // Precomputed date → weekday ISO-week key (null for weekend dates). Avoids
 // constructing Date objects inside the annealer's constraint checks.
+/** @type {Map<string, string>} */
 const weekdayWeekCache = new Map();
+/** @param {string} date @param {number} dayOfWeek */
 function weekdayWeekOf(date, dayOfWeek) {
   if (dayOfWeek === 0 || dayOfWeek === 6) return null;
   let wk = weekdayWeekCache.get(date);
@@ -20,6 +27,7 @@ function weekdayWeekOf(date, dayOfWeek) {
 }
 
 // ─── Module 4b: Simulated Annealing ─────────────────────────────────────────
+/** @param {ScheduledGame[]} schedule @param {number} numTeams @param {Slot[]} slots @param {number} maxIterations @param {Weights} weights @param {((progress: number, score: number) => void)|null} onProgress @param {Game[]|null} otherGames @returns {Promise<{schedule: ScheduledGame[], score: number, improved: boolean}>} */
 function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onProgress, otherGames) {
   if (!maxIterations) maxIterations = 2000;
   const score = makeScorer(numTeams, slots, weights, otherGames);
@@ -34,11 +42,12 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
 
   // Build date → game indices map for same-date swaps
   function buildDateIndex() {
+    /** @type {Map<string, number[]>} */
     const map = new Map();
     for (let i = 0; i < current.length; i++) {
       const d = current[i].date;
       if (!map.has(d)) map.set(d, []);
-      map.get(d).push(i);
+      /** @type {number[]} */ (map.get(d)).push(i);
     }
     return map;
   }
@@ -50,7 +59,10 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
     return out;
   }
   // Cached move candidates; rebuilt only when a date-changing move is accepted
-  let multiGameDates, weekendIndices;
+  /** @type {number[][]} */
+  let multiGameDates;
+  /** @type {number[]} */
+  let weekendIndices;
   function rebuildIndices() {
     multiGameDates = [...buildDateIndex().values()].filter(idx => idx.length >= 2);
     weekendIndices = buildWeekendIndices();
@@ -68,28 +80,31 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
   // Unused slots array, with sortKey → index for O(1) swaps
   const unusedSlots = slots.filter(s => !usedKeys.has(s.sortKey));
   const unusedIndex = new Map(unusedSlots.map((s, i) => [s.sortKey, i]));
+  /** @param {string} newKey @param {string} oldKey */
   function markUsed(newKey, oldKey) {
     usedKeys.delete(oldKey);
     usedKeys.add(newKey);
     const i = unusedIndex.get(newKey);
     if (i === undefined) return;
     unusedIndex.delete(newKey);
-    unusedSlots[i] = slotBySortKey.get(oldKey);
+    unusedSlots[i] = /** @type {Slot} */ (slotBySortKey.get(oldKey));
     unusedIndex.set(oldKey, i);
   }
 
   // Precompute field+date → time-sorted slots for slide moves
+  /** @type {Map<string, Slot[]>} */
   const fieldDateSlots = new Map();
   for (const s of slots) {
     if (s.dayOfWeek !== 0 && s.dayOfWeek !== 6) continue;
     const fdKey = s.field + '|' + s.date;
     if (!fieldDateSlots.has(fdKey)) fieldDateSlots.set(fdKey, []);
-    fieldDateSlots.get(fdKey).push(s);
+    /** @type {Slot[]} */ (fieldDateSlots.get(fdKey)).push(s);
   }
   for (const [, arr] of fieldDateSlots) arr.sort((a, b) => timeSortKey(a.time) - timeSortKey(b.time));
 
   // Hard constraints for the given games' teams, checked on the current state:
   // no same-day games, no 3 in 4 days, max 1 weekday game per Mon–Fri week.
+  /** @param {number[]} gameIndices */
   function teamsValid(gameIndices) {
     const teams = new Set();
     for (const gi of gameIndices) { teams.add(current[gi].home); teams.add(current[gi].away); }
@@ -114,6 +129,7 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
     return true;
   }
 
+  /** @param {number} i @param {number} j @param {boolean} sameDate */
   function swapSlots(i, j, sameDate) {
     const saved = {
       i: { date: current[i].date, dayOfWeek: current[i].dayOfWeek, weekendGroup: current[i].weekendGroup, time: current[i].time, field: current[i].field },
@@ -132,6 +148,7 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
     return saved;
   }
 
+  /** @param {number} i @param {number} j @param {ReturnType<typeof swapSlots>} saved */
   function revertSwap(i, j, saved) {
     Object.assign(current[i], saved.i);
     Object.assign(current[j], saved.j);
@@ -289,29 +306,32 @@ function annealSchedule(schedule, numTeams, slots, maxIterations, weights, onPro
 // For each weekend (field, date) with 1-2 games (source), try moving those games
 // to another field (target) on the same date that has >= as many games and enough
 // free slots to hold all games consecutively. Accepts only score improvements.
+/** @param {ScheduledGame[]} schedule @param {number} numTeams @param {Slot[]} slots @param {Weights} weights @param {Game[]|null} otherGames */
 function consolidateFields(schedule, numTeams, slots, weights, otherGames) {
   const score = makeScorer(numTeams, slots, weights, otherGames);
   const current = schedule.map(g => ({...g}));
 
+  /** @type {Map<string, Slot[]>} */
   const fieldDateSlots = new Map();
   for (const s of slots) {
     if (s.dayOfWeek !== 0 && s.dayOfWeek !== 6) continue;
     const fdKey = s.field + '|' + s.date;
     if (!fieldDateSlots.has(fdKey)) fieldDateSlots.set(fdKey, []);
-    fieldDateSlots.get(fdKey).push(s);
+    /** @type {Slot[]} */ (fieldDateSlots.get(fdKey)).push(s);
   }
   for (const [, arr] of fieldDateSlots) arr.sort((a, b) => timeSortKey(a.time) - timeSortKey(b.time));
 
   let currentScore = score(current);
 
   function buildFieldDateGames() {
+    /** @type {Map<string, number[]>} */
     const map = new Map();
     for (let gi = 0; gi < current.length; gi++) {
       const g = current[gi];
       if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
       const fdKey = g.field + '|' + g.date;
       if (!map.has(fdKey)) map.set(fdKey, []);
-      map.get(fdKey).push(gi);
+      /** @type {number[]} */ (map.get(fdKey)).push(gi);
     }
     return map;
   }
@@ -322,11 +342,12 @@ function consolidateFields(schedule, numTeams, slots, weights, otherGames) {
     const fieldDateGames = buildFieldDateGames();
 
     // Group fd keys by date
+    /** @type {Map<string, string[]>} */
     const dateToFdKeys = new Map();
     for (const fdKey of fieldDateGames.keys()) {
       const date = fdKey.split('|')[1];
       if (!dateToFdKeys.has(date)) dateToFdKeys.set(date, []);
-      dateToFdKeys.get(date).push(fdKey);
+      /** @type {string[]} */ (dateToFdKeys.get(date)).push(fdKey);
     }
 
     outer:
@@ -334,12 +355,12 @@ function consolidateFields(schedule, numTeams, slots, weights, otherGames) {
       if (fdKeys.length < 2) continue;
 
       for (const srcKey of fdKeys) {
-        const srcGames = fieldDateGames.get(srcKey);
+        const srcGames = /** @type {number[]} */ (fieldDateGames.get(srcKey));
         if (srcGames.length > 2) continue; // only consolidate small groups
 
         for (const tgtKey of fdKeys) {
           if (tgtKey === srcKey) continue;
-          const tgtGames = fieldDateGames.get(tgtKey);
+          const tgtGames = /** @type {number[]} */ (fieldDateGames.get(tgtKey));
           if (tgtGames.length < srcGames.length) continue; // target must be at least as large
 
           const tgtField = tgtKey.split('|')[0];
@@ -392,16 +413,18 @@ function consolidateFields(schedule, numTeams, slots, weights, otherGames) {
 // For each weekend (field, date) with multiple games, try all windows of N
 // consecutive available slots and apply the best packing. Repeats until no
 // improvement or 100 passes.
+/** @param {ScheduledGame[]} schedule @param {number} numTeams @param {Slot[]} slots @param {Weights} weights @param {Game[]|null} otherGames */
 function slideCleanup(schedule, numTeams, slots, weights, otherGames) {
   const score = makeScorer(numTeams, slots, weights, otherGames);
   const current = schedule.map(g => ({...g}));
 
+  /** @type {Map<string, Slot[]>} */
   const fieldDateSlots = new Map();
   for (const s of slots) {
     if (s.dayOfWeek !== 0 && s.dayOfWeek !== 6) continue;
     const fdKey = s.field + '|' + s.date;
     if (!fieldDateSlots.has(fdKey)) fieldDateSlots.set(fdKey, []);
-    fieldDateSlots.get(fdKey).push(s);
+    /** @type {Slot[]} */ (fieldDateSlots.get(fdKey)).push(s);
   }
   for (const [, arr] of fieldDateSlots) arr.sort((a, b) => timeSortKey(a.time) - timeSortKey(b.time));
 
@@ -411,13 +434,14 @@ function slideCleanup(schedule, numTeams, slots, weights, otherGames) {
     let improved = false;
 
     // Group game indices by field+date
+    /** @type {Map<string, number[]>} */
     const fieldDateGames = new Map();
     for (let gi = 0; gi < current.length; gi++) {
       const g = current[gi];
       if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
       const fdKey = g.field + '|' + g.date;
       if (!fieldDateGames.has(fdKey)) fieldDateGames.set(fdKey, []);
-      fieldDateGames.get(fdKey).push(gi);
+      /** @type {number[]} */ (fieldDateGames.get(fdKey)).push(gi);
     }
 
     for (const [fdKey, gameIndices] of fieldDateGames) {

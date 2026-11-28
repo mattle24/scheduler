@@ -1,7 +1,9 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-check
+/** @typedef {import("./types.js").Game} Game */
 import { shuffle } from './utils.js';
 
 // ─── Module 2: Generate Tournament Rounds (Circle/Polygon Algorithm) ────────
+/** @param {number} numTeams @returns {number[][][]} */
 function generateTournamentRounds(numTeams) {
   // If odd, add a dummy team (index = numTeams) to make it even, then strip byes
   const dummy = numTeams % 2 === 1 ? numTeams : -1;
@@ -27,6 +29,7 @@ function generateTournamentRounds(numTeams) {
 
     // Rotate: fix teams[0], rotate teams[1..n-1] by one position
     // Last element goes to position 1, everything else shifts right
+    /** @type {number} */
     const last = teams[n - 1];
     for (let i = n - 1; i > 1; i--) {
       teams[i] = teams[i - 1];
@@ -43,6 +46,7 @@ function generateTournamentRounds(numTeams) {
 //   Layer 2: every inter-league pair once
 //   Layer 3: every intra-league pair again
 //   ... until gamesPerTeam is reached.
+/** @param {number} numTeams @param {number} gamesPerTeam @param {number} numWeekends */
 function selectMatchupsWithLeagues(numTeams, gamesPerTeam, numWeekends) {
   const totalGames = numTeams * gamesPerTeam / 2;
   if (totalGames !== Math.floor(totalGames)) {
@@ -60,6 +64,7 @@ function selectMatchupsWithLeagues(numTeams, gamesPerTeam, numWeekends) {
   const nlSize = nlTeams.length;
 
   // Generate intra-league rounds using circle algorithm, mapped to real team IDs
+  /** @param {number[]} teams */
   function subLeagueRounds(teams) {
     if (teams.length < 2) return [];
     const rounds = generateTournamentRounds(teams.length);
@@ -185,6 +190,7 @@ function selectMatchupsWithLeagues(numTeams, gamesPerTeam, numWeekends) {
 }
 
 // Validate that the intra-league hard constraint is satisfiable
+/** @param {number} numTeams @param {number} gamesPerTeam */
 function validateLeagueSplit(numTeams, gamesPerTeam) {
   const alSize = Math.ceil(numTeams / 2);  // odd-numbered teams
   const nlSize = numTeams - alSize;         // even-numbered teams
@@ -201,6 +207,7 @@ function validateLeagueSplit(numTeams, gamesPerTeam) {
 // bye team from the weekday pool into the weekend round so every team plays
 // at least once per weekend. The opponent gets a Sat+Sun doubleheader, but
 // the builder spreads games across days to minimize that.
+/** @param {number[][][]} weekendRounds @param {number[][]} weekdayGames @param {number} numTeams */
 function fillWeekendByes(weekendRounds, weekdayGames, numTeams) {
   if (numTeams % 2 === 0) return;
   for (const round of weekendRounds) {
@@ -221,6 +228,7 @@ function fillWeekendByes(weekendRounds, weekdayGames, numTeams) {
 }
 
 // ─── Module 2b: Select Matchups from Tournament Rounds ──────────────────────
+/** @param {number[][][]} rounds @param {number} numTeams @param {number} gamesPerTeam @param {number} numWeekends */
 function selectMatchups(rounds, numTeams, gamesPerTeam, numWeekends) {
   const totalGames = numTeams * gamesPerTeam / 2;
   if (totalGames !== Math.floor(totalGames)) {
@@ -261,11 +269,13 @@ function selectMatchups(rounds, numTeams, gamesPerTeam, numWeekends) {
 
 
 // ─── Module 3: Assign Home/Away ──────────────────────────────────────────────
+/** @param {{teamA: number, teamB: number}[]} games @param {number} numTeams */
 function assignHomeAway(games, numTeams) {
   const homeCount = new Array(numTeams).fill(0);
   const awayCount = new Array(numTeams).fill(0);
   // Per-matchup tracking: key "min,max" → { home: count where min is home, away: count where min is away }
   const matchupHA = new Map();
+  /** @param {number} a @param {number} b */
   function matchupKey(a, b) { return Math.min(a, b) + ',' + Math.max(a, b); }
 
   const result = games.map(g => {
@@ -309,11 +319,12 @@ function assignHomeAway(games, numTeams) {
   });
 
   // Build per-team game index for efficient lookups in repair passes
+  /** @type {Map<number, {home: number, away: number}[]>} */
   const teamGamesIdx = new Map();
   for (let t = 0; t < numTeams; t++) teamGamesIdx.set(t, []);
   for (const r of result) {
-    teamGamesIdx.get(r.home).push(r);
-    teamGamesIdx.get(r.away).push(r);
+    /** @type {{home: number, away: number}[]} */ (teamGamesIdx.get(r.home)).push(r);
+    /** @type {{home: number, away: number}[]} */ (teamGamesIdx.get(r.away)).push(r);
   }
 
   // Repair pass 1: fix per-matchup imbalances (±1 max)
@@ -327,7 +338,7 @@ function assignHomeAway(games, numTeams) {
       // Need to flip a game where the over-represented side is home
       const flipFrom = diff > 0 ? lo : hi;  // this team is home too often in this matchup
       const flipTo = diff > 0 ? hi : lo;
-      for (const r of teamGamesIdx.get(flipFrom)) {
+      for (const r of /** @type {{home: number, away: number}[]} */ (teamGamesIdx.get(flipFrom))) {
         if (r.home === flipFrom && r.away === flipTo) {
           r.home = flipTo; r.away = flipFrom;
           homeCount[flipFrom]--; awayCount[flipFrom]++;
@@ -347,7 +358,7 @@ function assignHomeAway(games, numTeams) {
     let anyFixed = false;
     for (let i = 0; i < numTeams; i++) {
       if (homeCount[i] - awayCount[i] > 1) {
-        for (const r of teamGamesIdx.get(i)) {
+        for (const r of /** @type {{home: number, away: number}[]} */ (teamGamesIdx.get(i))) {
           if (r.home === i) {
             const other = r.away;
             // Only flip if it doesn't break per-matchup balance
@@ -369,7 +380,7 @@ function assignHomeAway(games, numTeams) {
           }
         }
       } else if (awayCount[i] - homeCount[i] > 1) {
-        for (const r of teamGamesIdx.get(i)) {
+        for (const r of /** @type {{home: number, away: number}[]} */ (teamGamesIdx.get(i))) {
           if (r.away === i) {
             const other = r.home;
             const key = matchupKey(i, other);
@@ -399,15 +410,17 @@ function assignHomeAway(games, numTeams) {
 }
 
 // ─── Module 3b: Post-Hoc Home/Away Rebalancing ─────────────────────────────
+/** @param {Game[]} schedule @param {number} numTeams @param {number} gamesPerTeam */
 function rebalanceHomeAway(schedule, numTeams, gamesPerTeam) {
   const target = gamesPerTeam / 2;
 
   // Build per-team game index (game objects are shared references, so flips are visible)
+  /** @type {Map<number, {home: number, away: number}[]>} */
   const teamGamesIdx = new Map();
   for (let t = 0; t < numTeams; t++) teamGamesIdx.set(t, []);
   for (const g of schedule) {
-    teamGamesIdx.get(g.home).push(g);
-    teamGamesIdx.get(g.away).push(g);
+    /** @type {{home: number, away: number}[]} */ (teamGamesIdx.get(g.home)).push(g);
+    /** @type {{home: number, away: number}[]} */ (teamGamesIdx.get(g.away)).push(g);
   }
 
   // excess[t] = homeCount[t] - target; positive = too many homes
@@ -435,11 +448,11 @@ function rebalanceHomeAway(schedule, numTeams, gamesPerTeam) {
   for (let t = 0; t < numTeams; t++) {
     while (excess[t] > 0) {
       let flipped = false;
-      for (const g1 of teamGamesIdx.get(t)) {
+      for (const g1 of /** @type {{home: number, away: number}[]} */ (teamGamesIdx.get(t))) {
         if (g1.home !== t) continue;
         const mid = g1.away;
         if (excess[mid] < 0) continue;
-        for (const g2 of teamGamesIdx.get(mid)) {
+        for (const g2 of /** @type {{home: number, away: number}[]} */ (teamGamesIdx.get(mid))) {
           if (g2.home !== mid) continue;
           const dest = g2.away;
           if (excess[dest] >= 0) continue;

@@ -1,10 +1,18 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-check
+/** @typedef {import('./types.js').Game & {weekendGroup: string|null, sortKey: string}} ScheduledGame */
+/** @typedef {import('./types.js').Game} Game */
+/** @typedef {import('./types.js').Slot} Slot */
+/** @typedef {import('./types.js').Weights} Weights */
+/** @typedef {{weekendRounds: number[][][], weekdayGames: number[][], slotScarcity?: Map<string, number>|null, otherDivisionGames?: Game[]|null}} Matchups */
+/** @typedef {{schedule: ScheduledGame[], score: number, details: import('./types.js').ScoreDetails}} BuildResult */
+/** @typedef {(activity: string, progress: number|null, score: number) => void} Progress */
 import { WEIGHTS, NUM_ATTEMPTS, ANNEAL_ITERATIONS } from './constants.js';
 import { isoWeek, addDays, hasThreeInFourDays, shuffle } from './utils.js';
 import { generateTournamentRounds, selectMatchups, selectMatchupsWithLeagues, validateLeagueSplit, assignHomeAway, rebalanceHomeAway } from './matchups.js';
 import { scoreCandidate, scoreDetails, scoreCrossDivision } from './scoring.js';
 import { annealSchedule, consolidateFields, slideCleanup } from './optimizer.js';
 
+/** @param {{home: number, away: number}[]} games @param {Slot[]} slots @param {number} numTeams @param {((progress: number, score: number) => void)|null} onProgress @param {Matchups|null} precomputedMatchups @param {Weights} weights @returns {Promise<BuildResult>} */
 function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchups, weights) {
   const totalGames = games.length;
   if (slots.length < totalGames) {
@@ -32,13 +40,14 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
   const dateToWeekdayWeek = new Map(); // date → isoWeek key (only for weekdays, null for weekends)
   for (const s of slots) {
     if (!dateToDay.has(s.date)) {
-      dateToDay.set(s.date, Math.round(new Date(s.date + 'T00:00:00') / 86400000));
+      dateToDay.set(s.date, Math.round(new Date(s.date + 'T00:00:00').getTime() / 86400000));
       const dow = new Date(s.date + 'T00:00:00').getDay();
       dateToDow.set(s.date, dow);
       dateToWeekdayWeek.set(s.date, (dow >= 1 && dow <= 5) ? isoWeek(s.date) : null);
     }
   }
   // Binary search for nearest day distance in a sorted array of day-numbers
+  /** @param {number[]} sortedDays @param {number} targetDay */
   function nearestDayDistance(sortedDays, targetDay) {
     const arr = sortedDays;
     if (arr.length === 0) return 14;
@@ -54,6 +63,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
   }
 
   // Insert a value into a sorted array in order (binary search insertion)
+  /** @param {number[]} arr @param {number} val */
   function insertSorted(arr, val) {
     let lo = 0, hi = arr.length;
     while (lo < hi) {
@@ -95,7 +105,10 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
   const gamesPerTeam = totalGames * 2 / numTeams;
 
   // Use precomputed matchups if provided, otherwise generate from tournament rounds
-  let weekendRounds, weekdayGames;
+  /** @type {number[][][]} */
+  let weekendRounds;
+  /** @type {number[][]} */
+  let weekdayGames;
   if (precomputedMatchups) {
     ({ weekendRounds, weekdayGames } = precomputedMatchups);
   } else {
@@ -116,6 +129,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
     haLookup.get(key).push({ home: g.home, away: g.away });
   }
 
+  /** @param {number} a @param {number} b */
   function getHomeAway(a, b) {
     const key = Math.min(a, b) + ',' + Math.max(a, b);
     const options = haLookup.get(key);
@@ -128,14 +142,18 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
     return options[idx % options.length];
   }
 
+  /** @type {ScheduledGame[]|null} */
   let bestSchedule = null;
   let bestScore = Infinity;
+  /** @type {any} diagnostic shape varies by phase */
   let lastFailureInfo = null; // diagnostic info from the most recent failed attempt
 
+  /** @param {number} attempt */
   function runAttempt(attempt) {
     // Reset the H/A counter each attempt
     for (const key of gameCounts.keys()) gameCounts.set(key, 0);
 
+    /** @type {ScheduledGame[]} */
     const schedule = [];
     const taken = new Set();
     const teamDay = new Map();
@@ -163,6 +181,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
     // Check if placing a game on `date` for team `t` would create a new back-to-back.
     // Uses pre-existing teamDaySorted (before recordAssignment inserts the new day).
     // The sorted array is ascending, so we only need to check neighbors around dayNum.
+    /** @param {number} t @param {string} date */
     function wouldCreateBtb(t, date) {
       const dayNum = dateToDay.get(date);
       return nearestDayDistance(teamDaySorted.get(t), dayNum) === 1;
@@ -170,6 +189,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
 
     // Add b2b penalty to runningPenalty for a team after a b2b was created.
     // Approximates marginal cost of the exponential (max-min) formula: exp(spread)-1.
+    /** @param {number} team */
     function addBtbPenalty(team) {
       const minBtb = Math.min(...teamBtbCount);
       const maxBtb = Math.max(...teamBtbCount);
@@ -182,6 +202,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
 
     // Clustering score: prefer fields where this division already has games, avoid other-division fields.
     // Weights mirror loneWeekendGame (1) and weekendOtherDivField (4) scoring penalties.
+    /** @param {string} field @param {string} date */
     function clusteringScore(field, date) {
       const key = field + '|' + date;
       let score = 0;
@@ -206,7 +227,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
     for (let wi = 0; wi < weekendGroups.length && wi < roundOrder.length; wi++) {
       const wg = weekendGroups[wi];
       const round = weekendRounds[roundOrder[wi]];
-      const groupSlots = weekendSlotsByGroup.get(wg);
+      const groupSlots = /** @type {Slot[]} */ (weekendSlotsByGroup.get(wg));
 
       const shuffledRound = shuffle(round);
 
@@ -474,12 +495,13 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
         }
       }
 
-      const homeBtb2 = wouldCreateBtb(home, bestSlot.date);
-      const awayBtb2 = wouldCreateBtb(away, bestSlot.date);
-      taken.add(bestSlot.sortKey);
-      const fdKey3 = bestSlot.field + '|' + bestSlot.date;
+      const chosenSlot = /** @type {Slot} */ (bestSlot);
+      const homeBtb2 = wouldCreateBtb(home, chosenSlot.date);
+      const awayBtb2 = wouldCreateBtb(away, chosenSlot.date);
+      taken.add(chosenSlot.sortKey);
+      const fdKey3 = chosenSlot.field + '|' + chosenSlot.date;
       divFieldDate.set(fdKey3, (divFieldDate.get(fdKey3) || 0) + 1);
-      recordAssignment(schedule, bestSlot, home, away, teamDay, teamDaySorted, teamWeekend, teamWeek, teamWeekdayWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff, dateToDay, dateToWeekdayWeek, insertSorted);
+      recordAssignment(schedule, chosenSlot, home, away, teamDay, teamDaySorted, teamWeekend, teamWeek, teamWeekdayWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff, dateToDay, dateToWeekdayWeek, insertSorted);
       // Track b2b imbalance for early exit
       if (homeBtb2) { teamBtbCount[home]++; addBtbPenalty(home); }
       if (awayBtb2) { teamBtbCount[away]++; addBtbPenalty(away); }
@@ -536,6 +558,7 @@ function tryBuildSchedule(games, slots, numTeams, onProgress, precomputedMatchup
 }
 
 // Entry point called by ui.js — handles matchup generation, H/A, and scheduling in one call
+/** @param {number} numTeams @param {number} gamesPerTeam @param {Slot[]} slots @param {Progress|null} onProgress @param {{leagueSplit?: boolean, slotScarcity?: Map<string, number>, otherDivisionGames?: Game[], weights?: Partial<Weights>}} options */
 function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
   options = options || {};
   const leagueSplit = options.leagueSplit || false;
@@ -550,7 +573,10 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
   }
   const numWeekends = weekendGroupSet.size;
 
-  let weekendRounds, weekdayGames;
+  /** @type {number[][][]} */
+  let weekendRounds;
+  /** @type {number[][]} */
+  let weekdayGames;
   if (leagueSplit) {
     const err = validateLeagueSplit(numTeams, gamesPerTeam);
     if (err) throw new Error(err);
@@ -569,7 +595,9 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
 
   const haGames = assignHomeAway(allPairs, numTeams);
   const games = haGames.map(g => ({ home: g.home, away: g.away }));
+  /** @type {((pct: number, score: number) => void)|null} */
   const greedyProgress = onProgress ? (pct, score) => onProgress('Building candidates', pct, score) : null;
+  /** @type {((pct: number, score: number) => void)|null} */
   const annealProgress = onProgress ? (pct, score) => onProgress('Optimizing schedule', pct, score) : null;
   return tryBuildSchedule(games, slots, numTeams, greedyProgress, { weekendRounds, weekdayGames, slotScarcity, otherDivisionGames }, W).then(result => {
     const preAnnealScore = scoreCandidate(result.schedule, numTeams, slots, W) + scoreCrossDivision(result.schedule, otherDivisionGames, W);
@@ -594,6 +622,7 @@ function buildSchedule(numTeams, gamesPerTeam, slots, onProgress, options) {
 }
 
 // Helper to record a game assignment and update tracking structures
+/** @param {ScheduledGame[]} schedule @param {Slot} slot @param {number} home @param {number} away @param {Map<number, any>} teamDay @param {Map<number, any>} teamDaySorted @param {Map<number, any>} teamWeekend @param {Map<number, any>} teamWeek @param {Map<number, any>} teamWeekdayWeek @param {Map<number, any>} lastGameDate @param {Map<number, any>} teamField @param {Map<number, any>} teamEndGames @param {string} endOfSeasonCutoff @param {Map<string, any>} dateToDay @param {Map<string, any>} dateToWeekdayWeek @param {(arr: number[], val: number) => void} insertSorted */
 function recordAssignment(schedule, slot, home, away, teamDay, teamDaySorted, teamWeekend, teamWeek, teamWeekdayWeek, lastGameDate, teamField, teamEndGames, endOfSeasonCutoff, dateToDay, dateToWeekdayWeek, insertSorted) {
   teamDay.get(home).add(slot.date);
   teamDay.get(away).add(slot.date);

@@ -1,4 +1,4 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-nocheck -- Editor DOM and interaction types are pending migration.
 import {
   scoreEditorGames,
   teamMetricNames,

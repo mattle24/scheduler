@@ -1,4 +1,7 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-check
+/** @typedef {import('./types.js').Game} Game */
+/** @typedef {{id: string, label: string}} Metric */
+/** @typedef {Record<string, Game[][]>} AuditRow */
 import { DAYS } from './constants.js';
 import { daysBetween, formatTimeDisplay, timeSortKey } from './utils.js';
 
@@ -16,12 +19,15 @@ const DAY_METRICS = [
 const COMPARABLE_METRICS = [...GAP_METRICS, ...DAY_METRICS];
 const DEFAULT_TOLERANCE = 1;
 
+/** @param {Metric} metric */
 function metricLabel({ id, label }) {
   if (!id.startsWith('gap-')) return label;
   return label === '1' ? '1 day apart' : `${label} days apart`;
 }
 
+/** @param {Game[]} schedule @param {number} numTeams @returns {AuditRow[]} */
 export function getScheduleAudit(schedule, numTeams) {
+  /** @type {Game[][]} */
   const byTeam = Array.from({ length: numTeams }, () => []);
   for (const game of schedule) {
     byTeam[game.home].push(game);
@@ -29,7 +35,9 @@ export function getScheduleAudit(schedule, numTeams) {
   }
   return byTeam.map(games => {
     games.sort((a, b) => a.date.localeCompare(b.date) || timeSortKey(a.time) - timeSortKey(b.time));
+    /** @type {AuditRow} */
     const stats = Object.fromEntries(COMPARABLE_METRICS.map(({ id }) => [id, []]));
+    /** @type {Map<string, Game[]>} */
     const gamesByDate = new Map();
     for (const [index, game] of games.entries()) {
       const sameDay = gamesByDate.get(game.date) ?? [];
@@ -49,17 +57,20 @@ export function getScheduleAudit(schedule, numTeams) {
   });
 }
 
+/** @template {keyof HTMLElementTagNameMap} K @param {K} tag @param {string} [text] @returns {HTMLElementTagNameMap[K]} */
 function element(tag, text) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
   return node;
 }
 
+/** @param {Game} game @param {number} team */
 function gameLabel(game, team) {
   const opponent = game.home === team ? game.away : game.home;
   return `${game.date} · ${formatTimeDisplay(game.time)} · ${game.field} · vs ${opponent + 1}B`;
 }
 
+/** @param {Metric[]} metrics @param {AuditRow[]} rows @param {number} tolerance @param {(team: number, label: string, groups: Game[][]) => void} showDetails */
 function makeTable(metrics, rows, tolerance, showDetails) {
   const wrapper = element('div');
   wrapper.className = 'team-summary-scroll';
@@ -124,6 +135,7 @@ function makeTable(metrics, rows, tolerance, showDetails) {
   return wrapper;
 }
 
+/** @param {HTMLElement} container @param {Game[]} schedule @param {number} numTeams @param {{viewState?: {auditTolerance?: number}}} [options] */
 export function renderScheduleAudit(container, schedule, numTeams, { viewState = {} } = {}) {
   let tolerance = viewState.auditTolerance ?? DEFAULT_TOLERANCE;
   const rows = getScheduleAudit(schedule, numTeams);
@@ -144,7 +156,7 @@ export function renderScheduleAudit(container, schedule, numTeams, { viewState =
   input.min = '0';
   input.step = '1';
   input.required = true;
-  input.value = tolerance;
+  input.value = String(tolerance);
   toleranceLabel.append(input);
   controls.append(toleranceLabel, element('p',
     'Both tables flag counts that differ from their column’s division average by more than this amount. Same-day doubleheaders are always flagged.'
@@ -163,6 +175,7 @@ export function renderScheduleAudit(container, schedule, numTeams, { viewState =
   const list = element('ul');
   details.append(detailHeader, list);
 
+  /** @param {number} team @param {string} label @param {Game[][]} groups */
   function showDetails(team, label, groups) {
     detailHeading.textContent = `${team + 1}B · ${label}`;
     details.setAttribute('aria-label', detailHeading.textContent);
@@ -195,7 +208,7 @@ export function renderScheduleAudit(container, schedule, numTeams, { viewState =
     renderTables();
   });
   input.addEventListener('change', () => {
-    if (!input.checkValidity()) input.value = tolerance;
+    if (!input.checkValidity()) input.value = String(tolerance);
   });
   renderTables();
   card.append(controls, tables, details);

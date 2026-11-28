@@ -3,7 +3,7 @@
 ## Overview
 Browser-based little league baseball/softball scheduler. No server, no build tools — plain JS/CSS/HTML. Generates optimized game schedules for one or more divisions from a TSV field-availability matrix. Each division has its own team count, games-per-team, and set of valid fields.
 
-Whenever you make a change, check the methodology explainer in index.html to see if the user-facing docs should change.
+Whenever you make a change, check the methodology explainer in index.html to see if the user-facing docs should change. Before pushing, run `npm run typecheck && npm test`.
 
 ## Files
 - **js/types.js** — Shared JSDoc data shapes (source of truth for scheduler and persisted structures)

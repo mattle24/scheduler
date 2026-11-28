@@ -1,4 +1,4 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-nocheck -- Division setup DOM migration is pending.
 import { WEIGHTS, WEIGHT_LABELS, WEIGHT_DESCRIPTIONS } from './constants.js';
 import { debouncedSave } from './state.js';
 

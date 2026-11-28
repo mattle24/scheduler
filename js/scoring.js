@@ -1,12 +1,20 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-check
+/** @typedef {import('./types.js').Game} Game */
+/** @typedef {import('./types.js').Slot} Slot */
+/** @typedef {import('./types.js').Weights} Weights */
+/** @typedef {import('./types.js').ScoreDetails} ScoreDetails */
+/** @typedef {ReturnType<typeof teamTerms>} TeamTerms */
+/** @typedef {keyof Omit<TeamTerms, 'shortGapCount'|'btbCount'>} TeamSumKey */
+/** @typedef {{division: {name: string}, schedule: Game[]}} ScoredDivision */
 import { WEIGHTS, WKND_BUCKET_IMPORTANCE } from './constants.js';
 import { slotBucket, dayNum, timeSortKey, addDays } from './utils.js';
 
+/** @param {Game[]} schedule @param {number} numTeams @param {Slot[]} slots @param {Weights} [weights] */
 function scoreCandidate(schedule, numTeams, slots, weights) {
   const d = scoreDetails(schedule, numTeams, slots);
   let score = 0;
   const W = weights || WEIGHTS;
-  for (const key in W) {
+  for (const key of /** @type {(keyof ScoreDetails & keyof Weights)[]} */ (Object.keys(W))) {
     if (d[key] != null) score += d[key] * W[key];
   }
   return score;
@@ -14,13 +22,19 @@ function scoreCandidate(schedule, numTeams, slots, weights) {
 
 // Slot-derived values depend only on the slot pool, not the schedule, so they're
 // cached per slots array. The optimizer scores the same array thousands of times.
+/** @type {WeakMap<Slot[], {activeWeekends: Set<string>, activeBuckets: Set<string>, activeFields: Set<string>, weekdaySlotCount: number, fieldDateTimes: Map<string, number[]>}>} */
 const slotStatsCache = new WeakMap();
+/** @param {Slot[]} allSlots */
 function getSlotStats(allSlots) {
   let st = slotStatsCache.get(allSlots);
   if (st) return st;
+  /** @type {Set<string>} */
   const activeWeekends = new Set();
+  /** @type {Set<string>} */
   const activeBuckets = new Set();
+  /** @type {Set<string>} */
   const activeFields = new Set();
+  /** @type {Map<string, number[]>} */
   const fieldDateTimes = new Map(); // "field|date" -> sorted weekend time sort keys
   let weekdaySlotCount = 0;
   for (const s of allSlots) {
@@ -31,7 +45,7 @@ function getSlotStats(allSlots) {
     if (s.dayOfWeek === 0 || s.dayOfWeek === 6) {
       const key = s.field + '|' + s.date;
       if (!fieldDateTimes.has(key)) fieldDateTimes.set(key, []);
-      fieldDateTimes.get(key).push(timeSortKey(s.time));
+      /** @type {number[]} */ (fieldDateTimes.get(key)).push(timeSortKey(s.time));
     }
   }
   for (const [, arr] of fieldDateTimes) arr.sort((a, b) => a - b);
@@ -42,6 +56,7 @@ function getSlotStats(allSlots) {
 
 // Schedule-independent context for scoring one division: slot stats plus values
 // derived from team count and games per team.
+/** @param {number} numTeams @param {Slot[]} allSlots @param {number} gamesPerTeam */
 function makeScoreContext(numTeams, allSlots, gamesPerTeam) {
   const st = getSlotStats(allSlots);
   const numActiveWeekends = st.activeWeekends.size;
@@ -61,12 +76,14 @@ function makeScoreContext(numTeams, allSlots, gamesPerTeam) {
 }
 
 // Season start for earlySeasonDensity = earliest scheduled date.
+/** @param {string|undefined} minDate */
 function earlyWindow(minDate) {
   return { start: minDate, cutoff: minDate === undefined ? undefined : addDays(minDate, 6) };
 }
 
 // Unrounded per-team penalty contributions. Depends only on this team's games,
 // so incremental scorers can recompute just the teams a move touches.
+/** @param {Game[]} games @param {ReturnType<typeof makeScoreContext>} ctx @param {ReturnType<typeof earlyWindow>} early */
 function teamTerms(games, ctx, early) {
   const days = games.map(g => dayNum(g.date)).sort((a, b) => a - b);
 
@@ -104,11 +121,11 @@ function teamTerms(games, ctx, early) {
     for (const b of ctx.weekendBuckets) bucketCounts.set(b, 0);
     for (const g of games) {
       const b = slotBucket(g.dayOfWeek, g.time);
-      if (bucketCounts.has(b)) bucketCounts.set(b, bucketCounts.get(b) + 1);
+      if (bucketCounts.has(b)) bucketCounts.set(b, /** @type {number} */ (bucketCounts.get(b)) + 1);
     }
     const vals = [...bucketCounts.entries()];
     const mean = vals.reduce((a, [, v]) => a + v, 0) / vals.length;
-    timeDistribution = vals.reduce((a, [b, v]) => a + (WKND_BUCKET_IMPORTANCE[b] || 1) * (v - mean) ** 2, 0) / vals.length;
+    timeDistribution = vals.reduce((a, [b, v]) => a + (WKND_BUCKET_IMPORTANCE[/** @type {keyof typeof WKND_BUCKET_IMPORTANCE} */ (b)] || 1) * (v - mean) ** 2, 0) / vals.length;
   }
 
   let fieldBalance = 0;
@@ -124,7 +141,7 @@ function teamTerms(games, ctx, early) {
   // Pairs of games within 2 days in the first 7 days of the season
   let earlySeasonDensity = 0;
   if (early.start !== undefined) {
-    const lo = dayNum(early.start), hi = dayNum(early.cutoff);
+    const lo = dayNum(early.start), hi = dayNum(/** @type {string} */ (early.cutoff));
     let prev = null;
     for (const d of days) {
       if (d < lo || d > hi) continue;
@@ -163,6 +180,7 @@ function teamTerms(games, ctx, early) {
 }
 
 // Variance of per-team short-gap (< 3 days) counts
+/** @param {number[]} counts */
 function shortGapBalanceOf(counts) {
   if (counts.length === 0) return 0;
   const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
@@ -170,6 +188,7 @@ function shortGapBalanceOf(counts) {
 }
 
 // Exponential penalty on (max − min) back-to-back counts across teams
+/** @param {number[]} counts */
 function btbBalanceOf(counts) {
   const spread = Math.max(...counts) - Math.min(...counts);
   return spread === 0 ? 0 : Math.exp(spread) - 1;
@@ -178,6 +197,7 @@ function btbBalanceOf(counts) {
 // One weekend field+date for this division. gameTimes: sorted time sort keys.
 // fieldContinuity = available slots left empty between the first and last game;
 // loneWeekendGame = 1 if the division has a single game there.
+/** @param {number[]} gameTimes @param {number[]|undefined} allTimes */
 function fieldDateTerms(gameTimes, allTimes) {
   if (gameTimes.length === 1) return { fieldContinuity: 0, loneWeekendGame: 1 };
   let fieldContinuity = 0;
@@ -191,12 +211,15 @@ function fieldDateTerms(gameTimes, allTimes) {
 
 // Per-team terms summed into metrics, unrounded. Shared by scoreDetails and the
 // incremental scorer so both paths compute identical penalties.
+/** @type {TeamSumKey[]} */
 const TEAM_SUM_KEYS = ['weekendSitouts', 'weekendDoubleHeaders', 'gapVariance', 'shortGapPenalty',
   'timeDistribution', 'fieldBalance', 'earlySeasonDensity', 'weekendBTBTimePenalty', 'satSunBalance'];
 
+/** @param {Game[]} schedule @param {number} numTeams @param {Slot[]} allSlots @returns {ScoreDetails} */
 function scoreDetails(schedule, numTeams, allSlots) {
   const ctx = makeScoreContext(numTeams, allSlots, schedule.length * 2 / numTeams);
 
+  /** @type {Game[][]} */
   const teamGames = [];
   for (let t = 0; t < numTeams; t++) teamGames.push([]);
   let minDate;
@@ -207,7 +230,8 @@ function scoreDetails(schedule, numTeams, allSlots) {
   }
   const early = earlyWindow(minDate);
 
-  const sums = {};
+  /** @type {Record<TeamSumKey, number>} */
+  const sums = /** @type {Record<TeamSumKey, number>} */ ({});
   for (const k of TEAM_SUM_KEYS) sums[k] = 0;
   const shortGapCounts = [], btbCounts = [];
   for (let t = 0; t < numTeams; t++) {
@@ -221,6 +245,7 @@ function scoreDetails(schedule, numTeams, allSlots) {
   let timeSlotSpread = 0;
   const dateTimeCounts = new Map();
   // Weekend field+date → this division's game times
+  /** @type {Map<string, number[]>} */
   const fieldDateGameTimes = new Map();
   for (const g of schedule) {
     if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
@@ -228,7 +253,7 @@ function scoreDetails(schedule, numTeams, allSlots) {
     dateTimeCounts.set(dtKey, (dateTimeCounts.get(dtKey) || 0) + 1);
     const fdKey = g.field + '|' + g.date;
     if (!fieldDateGameTimes.has(fdKey)) fieldDateGameTimes.set(fdKey, []);
-    fieldDateGameTimes.get(fdKey).push(timeSortKey(g.time));
+    /** @type {number[]} */ (fieldDateGameTimes.get(fdKey)).push(timeSortKey(g.time));
   }
   for (const c of dateTimeCounts.values()) if (c > 1) timeSlotSpread += c - 1;
 
@@ -240,6 +265,7 @@ function scoreDetails(schedule, numTeams, allSlots) {
     loneWeekendGame += fd.loneWeekendGame;
   }
 
+  /** @param {number} x */
   const r2 = x => Math.round(x * 100) / 100;
   return {
     weekendSitouts: sums.weekendSitouts,
@@ -261,16 +287,18 @@ function scoreDetails(schedule, numTeams, allSlots) {
 }
 
 // ─── Cross-Division Scoring ─────────────────────────────────────────────────
+/** @param {ScoredDivision[]} divisionResults */
 function scoreCrossfieldDivisionClustering(divisionResults) {
   // For each (field, date), collect all games sorted by time across all divisions.
   // Count division switches between consecutive games.
   // A-B-A (switch back) is penalized more heavily than A-B (single switch).
+  /** @type {Map<string, {timeSortKey: number, division: string}[]>} */
   const fieldDateGames = new Map(); // key: "field|date" -> [{time, division}]
   for (const dr of divisionResults) {
     for (const g of dr.schedule) {
       const key = g.field + '|' + g.date;
       if (!fieldDateGames.has(key)) fieldDateGames.set(key, []);
-      fieldDateGames.get(key).push({ timeSortKey: timeSortKey(g.time), division: dr.division.name });
+      /** @type {{timeSortKey: number, division: string}[]} */ (fieldDateGames.get(key)).push({ timeSortKey: timeSortKey(g.time), division: dr.division.name });
     }
   }
 
@@ -295,15 +323,17 @@ function scoreCrossfieldDivisionClustering(divisionResults) {
 // Count weekend games for each division that share a field+date with any other division.
 // Returned value is the total count of such games across all divisions.
 // Note: a field+date used by N divisions contributes N games (one per division).
+/** @param {ScoredDivision[]} divisionResults */
 function scoreWeekendOtherDivField(divisionResults) {
   // Build map: "field|date" → set of division names with games there
+  /** @type {Map<string, Set<string>>} */
   const fieldDateDivs = new Map();
   for (const dr of divisionResults) {
     for (const g of dr.schedule) {
       if (g.dayOfWeek !== 0 && g.dayOfWeek !== 6) continue;
       const key = g.field + '|' + g.date;
       if (!fieldDateDivs.has(key)) fieldDateDivs.set(key, new Set());
-      fieldDateDivs.get(key).add(dr.division.name);
+      /** @type {Set<string>} */ (fieldDateDivs.get(key)).add(dr.division.name);
     }
   }
   // For each division, count its games on field+dates that other divisions also use
@@ -326,19 +356,21 @@ function scoreWeekendOtherDivField(divisionResults) {
 // games (each tagged with `division`). Lets per-division optimizers see the same
 // cross-division terms that globalScore uses. Constant other-vs-other terms are
 // included too; they cancel out in score deltas.
+/** @param {Game[]} schedule @param {Game[]|null} otherGames @param {Weights} [weights] */
 function scoreCrossDivision(schedule, otherGames, weights) {
   if (!otherGames || otherGames.length === 0) return 0;
   const W = weights || WEIGHTS;
   const wClust = W.fieldDivisionClustering || 0;
   const wOther = W.weekendOtherDivField || 0;
   if (!wClust && !wOther) return 0;
+  /** @type {Map<string, Game[]>} */
   const byDiv = new Map();
   byDiv.set('\u0000self', []);
-  for (const g of schedule) byDiv.get('\u0000self').push(g);
-  for (const g of otherGames) {
+  for (const g of schedule) /** @type {Game[]} */ (byDiv.get('\u0000self')).push(g);
+  for (const g of /** @type {Game[]} */ (otherGames)) {
     const name = g.division || '\u0000other';
     if (!byDiv.has(name)) byDiv.set(name, []);
-    byDiv.get(name).push(g);
+    /** @type {Game[]} */ (byDiv.get(name)).push(g);
   }
   const drs = [...byDiv].map(([name, sched]) => ({ division: { name }, schedule: sched }));
   let score = 0;

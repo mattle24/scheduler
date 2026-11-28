@@ -1,4 +1,4 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-nocheck -- Results rendering DOM migration is pending.
 import { escapeHTML, renderCalendar } from './calendar.js';
 import { renderScheduleAudit } from './scheduleAudit.js';
 import { renderOpponentTimeline } from './opponentTimeline.js';

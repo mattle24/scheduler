@@ -1,21 +1,25 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-check
+/** @typedef {import('./types.js').Game} Game */
 import { addDays, daysBetween, formatTimeDisplay, timeSortKey } from './utils.js';
 
 // Each consecutive group of the requested size is a separate stretch.
 // Index it by game so stretches can be shown even across visible date ranges.
+/** @param {Game[]} games @param {number} gameCount @param {number} dayCount */
 export function tightStretches(games, gameCount, dayCount) {
+  /** @type {Map<Game, Game[][]>} */
   const byGame = new Map();
   for (let i = 0; i <= games.length - gameCount; i++) {
     if (daysBetween(games[i].date, games[i + gameCount - 1].date) >= dayCount) continue;
     const stretch = games.slice(i, i + gameCount);
     for (const game of stretch) {
       if (!byGame.has(game)) byGame.set(game, []);
-      byGame.get(game).push(stretch);
+      /** @type {Game[][]} */ (byGame.get(game)).push(stretch);
     }
   }
   return byGame;
 }
 
+/** @template {keyof HTMLElementTagNameMap} K @param {K} tag @param {string} [label] @param {string} [className] @returns {HTMLElementTagNameMap[K]} */
 function element(tag, label = '', className = '') {
   const node = document.createElement(tag);
   if (label) node.textContent = label;
@@ -23,6 +27,7 @@ function element(tag, label = '', className = '') {
   return node;
 }
 
+/** @param {string} label @param {() => void} action @param {string} [className] */
 function button(label, action, className = 'btn-secondary btn-sm') {
   const control = element('button', label, className);
   control.type = 'button';
@@ -30,17 +35,18 @@ function button(label, action, className = 'btn-secondary btn-sm') {
   return control;
 }
 
+/** @param {string} label @param {number} value @param {number} min @param {number} max @param {(value: number) => void} onChange */
 function numberControl(label, value, min, max, onChange) {
   const wrapper = element('label', label);
   const input = element('input');
   input.type = 'number';
-  input.min = min;
-  input.max = max;
-  input.value = value;
+  input.min = String(min);
+  input.max = String(max);
+  input.value = String(value);
   input.addEventListener('change', () => {
     const next = input.valueAsNumber;
     if (!Number.isInteger(next) || next < min || next > max) {
-      input.value = value;
+      input.value = String(value);
       return;
     }
     value = next;
@@ -50,11 +56,15 @@ function numberControl(label, value, min, max, onChange) {
   return wrapper;
 }
 
+/** @param {number} team */
 const teamLabel = team => `${team + 1}B`;
+/** @param {Game} game @param {number} team */
 const opponent = (game, team) => game.home === team ? game.away : game.home;
 const shortDate = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' });
+/** @param {string} date */
 const formatDate = date => shortDate.format(new Date(date + 'T00:00:00'));
 
+/** @param {HTMLElement} container @param {Game[]} schedule @param {number} numTeams @param {((game: Game) => void)|null} onEditGame @param {{gameCount?: number, dayCount?: number}} [viewState] */
 export function renderOpponentTimeline(container, schedule, numTeams, onEditGame, viewState = {}) {
   container.append(element('h2', 'Game Density'));
   if (!schedule.length) {
@@ -64,6 +74,7 @@ export function renderOpponentTimeline(container, schedule, numTeams, onEditGame
 
   const sortedGames = [...schedule].sort((a, b) =>
     a.date.localeCompare(b.date) || timeSortKey(a.time) - timeSortKey(b.time));
+  /** @type {Game[][]} */
   const teamGames = Array.from({ length: numTeams }, () => []);
   for (const game of sortedGames) {
     teamGames[game.home].push(game);
@@ -93,9 +104,12 @@ export function renderOpponentTimeline(container, schedule, numTeams, onEditGame
   details.setAttribute('aria-live', 'polite');
   details.append(element('p', 'Select a team’s tally to see its matching stretches.'));
   container.append(legend, grid, details);
+  /** @type {number|null} */
   let selectedTeam = null;
+  /** @type {Game[]|null} */
   let selectedStretch = null;
 
+  /** @param {Game} game */
   function showGame(game) {
     details.replaceChildren();
     details.append(element('h3', `${teamLabel(game.away)} at ${teamLabel(game.home)} · ${formatDate(game.date)}`));
@@ -103,6 +117,7 @@ export function renderOpponentTimeline(container, schedule, numTeams, onEditGame
     if (onEditGame) details.append(button('Preview move or swap', () => onEditGame(game)));
   }
 
+  /** @param {number} team @param {Game[][]} stretches */
   function showStretches(team, stretches) {
     details.replaceChildren();
     details.append(element('h3', `${teamLabel(team)} · ${stretches.length} ${stretches.length === 1 ? 'stretch' : 'stretches'}`));
@@ -110,7 +125,7 @@ export function renderOpponentTimeline(container, schedule, numTeams, onEditGame
     const list = element('ol');
     for (const stretch of stretches) {
       const item = element('li');
-      const link = button(`${formatDate(stretch[0].date)} – ${formatDate(stretch.at(-1).date)}`, () => {
+      const link = button(`${formatDate(stretch[0].date)} – ${formatDate(stretch[stretch.length - 1].date)}`, () => {
         selectedStretch = stretch;
         render();
         grid.querySelector(`[data-date="${stretch[0].date}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -131,10 +146,11 @@ export function renderOpponentTimeline(container, schedule, numTeams, onEditGame
   function render() {
     const stretches = teamGames.map(games => [...new Set([...tightStretches(games, gameCount, dayCount).values()].flat())]);
     const flagged = stretches.map(list => new Set(list.flat()));
+    /** @type {Map<string, Game[]>} */
     const byDate = new Map();
     for (const game of sortedGames) {
       if (!byDate.has(game.date)) byDate.set(game.date, []);
-      byDate.get(game.date).push(game);
+      /** @type {Game[]} */ (byDate.get(game.date)).push(game);
     }
     grid.replaceChildren();
     const table = element('table', '', 'timeline-table');
@@ -163,7 +179,7 @@ export function renderOpponentTimeline(container, schedule, numTeams, onEditGame
       tallyRow.append(cell);
     }
     const body = table.createTBody();
-    for (let date = sortedGames[0].date; date <= sortedGames.at(-1).date; date = addDays(date, 1)) {
+    for (let date = sortedGames[0].date; date <= sortedGames[sortedGames.length - 1].date; date = addDays(date, 1)) {
       const row = body.insertRow();
       row.dataset.date = date;
       const dow = new Date(date + 'T00:00:00').getDay();
@@ -173,7 +189,7 @@ export function renderOpponentTimeline(container, schedule, numTeams, onEditGame
       dateCell.scope = 'row';
       row.append(dateCell);
       const games = byDate.get(date) ?? [];
-      row.insertCell().textContent = games.length || '·';
+      row.insertCell().textContent = games.length ? String(games.length) : '·';
       for (let team = 0; team < numTeams; team++) {
         const cell = row.insertCell();
         for (const game of games.filter(g => g.home === team || g.away === team)) {

@@ -1,11 +1,27 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-check
+/** @typedef {import('./types.js').Slot} Slot */
+/** @typedef {import('./types.js').DivisionConfig} DivisionConfig */
+/** @typedef {import('./types.js').DivisionResult} DivisionResult */
+/** @typedef {import('./types.js').Weights} Weights */
+/** @typedef {import('./types.js').ScoreDetails} ScoreDetails */
 import { hasSchedule, startSchedule } from './scheduleSession.js';
 import { WEIGHTS } from './constants.js';
+// @ts-expect-error Browser cache-busting query strings are not resolved by TypeScript.
 import { parseTSV } from './parser.js?v=3';
+// @ts-expect-error Browser cache-busting query strings are not resolved by TypeScript.
 import { buildSchedule } from './builder.js?v=3';
 import { scoreCrossfieldDivisionClustering, scoreDetails, scoreWeekendOtherDivField } from './scoring.js';
+// @ts-expect-error Browser cache-busting query strings are not resolved by TypeScript.
 import { readDivisions, readDivWeightOverrides, syncWeights } from './divisions.js?v=5';
+// @ts-expect-error Browser cache-busting query strings are not resolved by TypeScript.
 import { showError, clearError } from './render.js?v=4';
+
+/** @template {HTMLElement} T @param {string} id @param {{new (...args: any[]): T}} Ctor @returns {T} */
+function byId(id, Ctor) {
+  const node = document.getElementById(id);
+  if (!(node instanceof Ctor)) throw new Error(`Missing or invalid element: ${id}`);
+  return node;
+}
 
 let generating = false;
 
@@ -16,10 +32,10 @@ function isGenerating() {
 function generate() {
   if (generating) return;
   clearError();
-  document.getElementById('editTab').disabled = true;
-  document.getElementById('results').classList.add('hidden');
-  document.getElementById('resultsTab').disabled = true;
-  const statusBox = document.getElementById('statusBox');
+  byId('editTab', HTMLButtonElement).disabled = true;
+  byId('results', HTMLElement).classList.add('hidden');
+  byId('resultsTab', HTMLButtonElement).disabled = true;
+  const statusBox = byId('statusBox', HTMLElement);
   statusBox.classList.remove('hidden');
   statusBox.textContent = 'Preparing...';
   generating = true;
@@ -27,13 +43,14 @@ function generate() {
 
   setTimeout(async () => {
     try {
-      const divs = readDivisions();
-      const tsvText = document.getElementById('tsvInput').value;
+      const divs = /** @type {DivisionConfig[]} */ (readDivisions());
+      const tsvText = byId('tsvInput', HTMLTextAreaElement).value;
       if (!tsvText.trim()) throw new Error('Please enter field availability data');
 
       syncWeights();
-      const allSlots = parseTSV(tsvText);
+      const allSlots = /** @type {Slot[]} */ (parseTSV(tsvText));
       const claimedKeys = new Set();
+      /** @type {(DivisionResult & {schedule: (import("./types.js").Game & {sortKey: string})[]})[]} */
       const divisionResults = [];
       const MAX_ROUNDS = 3;
       const maxPasses = divs.length * (1 + MAX_ROUNDS);
@@ -42,9 +59,10 @@ function generate() {
         <div></div>
         <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
         <div class="progress-label" id="progressLabel"></div>`;
-      const divisionLabel = statusBox.firstElementChild;
-      const progressFill = statusBox.querySelector('#progressFill');
-      const progressLabel = statusBox.querySelector('#progressLabel');
+      const divisionLabel = /** @type {HTMLElement} */ (statusBox.firstElementChild);
+      const progressFill = /** @type {HTMLElement} */ (statusBox.querySelector('#progressFill'));
+      const progressLabel = /** @type {HTMLElement} */ (statusBox.querySelector('#progressLabel'));
+      /** @param {string} activity @param {number|null} pct @param {number} score */
       const updateProgress = (activity, pct, score) => {
         const percent = Math.floor(completedPasses / maxPasses * 100);
         progressFill.style.width = percent + '%';
@@ -52,6 +70,7 @@ function generate() {
         const label = `${completedPasses} of up to ${maxPasses} passes completed — ${activityLabel}`;
         progressLabel.textContent = Number.isFinite(score) ? label + ' — quality score: ' + score.toFixed(1) + ' (lower is better)' : label;
       };
+      /** @param {string} label */
       const showDivisionProgress = label => {
         divisionLabel.textContent = label;
         updateProgress('Building candidates', 0, Infinity);
@@ -92,7 +111,7 @@ function generate() {
         // Phase 1: Build
         showDivisionProgress(divLabel);
 
-        const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, updateProgress,
+        const result = await (/** @type {typeof import('./builder.js').buildSchedule} */ (buildSchedule))(div.numTeams, div.gamesPerTeam, divSlots, updateProgress,
           { leagueSplit: div.leagueSplit, slotScarcity, weights: divWeightOverrides });
         completedPasses++;
 
@@ -148,7 +167,7 @@ function generate() {
               .flatMap(r => r.schedule.map(g => ({ ...g, division: r.division.name })));
 
             const divWeightOverrides = divisionWeights[i];
-            const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, updateProgress,
+            const result = await (/** @type {typeof import('./builder.js').buildSchedule} */ (buildSchedule))(div.numTeams, div.gamesPerTeam, divSlots, updateProgress,
               { leagueSplit: div.leagueSplit, slotScarcity, otherDivisionGames, weights: divWeightOverrides });
             completedPasses++;
 
@@ -189,12 +208,12 @@ function generate() {
       }
 
       startSchedule(divisionResults, allSlots, {...WEIGHTS});
-      document.getElementById('results').classList.remove('hidden');
+      byId('results', HTMLElement).classList.remove('hidden');
 
     } catch (e) {
-      document.getElementById('resultsTab').disabled = !hasSchedule();
-      document.getElementById('editTab').disabled = !hasSchedule();
-      showError(e.message);
+      byId('resultsTab', HTMLButtonElement).disabled = !hasSchedule();
+      byId('editTab', HTMLButtonElement).disabled = !hasSchedule();
+      showError(/** @type {Error} */ (e).message);
     } finally {
       statusBox.classList.add('hidden');
       generating = false;
@@ -205,6 +224,7 @@ function generate() {
 
 // ─── Scoring ─────────────────────────────────────────────────────────────────
 
+/** @param {DivisionResult[]} divisionResults */
 function globalScore(divisionResults) {
   return divisionResults.reduce((sum, r) => sum + weightedScore(r.details, r.weights), 0)
     + scoreCrossfieldDivisionClustering(divisionResults) * (WEIGHTS.fieldDivisionClustering || 0)
@@ -213,10 +233,11 @@ function globalScore(divisionResults) {
 
 // Per-division score using the same weights (global + division overrides) the
 // division was optimized with.
+/** @param {ScoreDetails} d @param {Partial<Weights>|undefined} overrides */
 function weightedScore(d, overrides) {
   const W = overrides ? { ...WEIGHTS, ...overrides } : WEIGHTS;
   let score = 0;
-  for (const key in W) {
+  for (const key of /** @type {(keyof ScoreDetails & keyof Weights)[]} */ (Object.keys(W))) {
     if (d[key] != null) score += d[key] * W[key];
   }
   return score;

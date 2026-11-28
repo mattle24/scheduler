@@ -4,7 +4,7 @@
 /** @typedef {import('./types.js').Game} Game */
 /** @typedef {import('./types.js').DivisionConfig} DivisionConfig */
 /** @typedef {import('./types.js').Weights} Weights */
-/** @typedef {{allSlots: Slot[], baseWeights: Weights, results: {division: DivisionConfig, weights: Weights, schedule: Game[]}[]}} StorageSession */
+/** @typedef {{allSlots: Slot[], baseWeights: Weights, results: {division: DivisionConfig, weights: Partial<Weights>, schedule: Game[]}[]}} StorageSession */
 import { slotKey } from './utils.js';
 
 export const SCHEDULE_STORAGE_KEY = 'scheduler_schedule_v1';

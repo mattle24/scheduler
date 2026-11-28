@@ -1,4 +1,11 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-check
+/** @typedef {import('./types.js').Game & import('./types.js').Slot & {id: string, division: string}} EditorGame */
+/** @typedef {import('./types.js').Slot} Slot */
+/** @typedef {import('./types.js').DivisionConfig} DivisionConfig */
+/** @typedef {import('./types.js').DivisionResult} DivisionResult */
+/** @typedef {import('./types.js').Weights} Weights */
+/** @typedef {import('./types.js').WeightKey} WeightKey */
+/** @typedef {Record<string, number>} Metrics */
 import { WEIGHT_LABELS } from './constants.js';
 import {
   scoreDetails,
@@ -12,8 +19,10 @@ import {
 import { slotKey, dayNum, isoWeek, slotBucket } from './utils.js';
 
 // Production games stay zero-indexed; only the prototype presentation uses 1B…nB.
+/** @param {EditorGame[]} games @param {EditorGame} game @param {Slot} slot */
 export function moveGames(games, game, slot) {
   const occupant = games.find((g) => g.id !== game.id && slotKey(g) === slotKey(slot));
+  /** @param {EditorGame} g @param {Slot} destination */
   const relocate = (g, destination) => ({
     ...g,
     ...destination,
@@ -27,11 +36,12 @@ export function moveGames(games, game, slot) {
     g.id === game.id ? relocate(g, slot) : g.id === occupant?.id ? relocate(g, game) : g
   );
 }
+/** @param {EditorGame[]} games @param {EditorGame} game @param {Slot} slot @param {Record<string, DivisionConfig>} divisions */
 export function moveReason(games, game, slot, divisions) {
   if (slotKey(game) === slotKey(slot)) return 'Current slot';
   const occupant = games.find((g) => g.id !== game.id && slotKey(g) === slotKey(slot));
   const proposed = moveGames(games, game, slot);
-  for (const moved of [game, occupant].filter(Boolean)) {
+  for (const moved of /** @type {EditorGame[]} */ ([game, occupant].filter(Boolean))) {
     const destination = moved.id === game.id ? slot : game;
     const config = divisions[moved.division];
     if (!config.fields.includes(destination.field))
@@ -61,6 +71,7 @@ export function moveReason(games, game, slot, divisions) {
   return '';
 }
 
+/** @param {EditorGame[]} games */
 function gapFacts(games) {
   const days = games.map((g) => dayNum(g.date)).sort((a, b) => a - b);
   return days.length < 2
@@ -71,10 +82,12 @@ function gapFacts(games) {
         .join(', ') + ' days between games';
 }
 
+/** @param {EditorGame[]} games @param {DivisionResult[]} results @param {Weights} baseWeights @param {boolean} [breakdown] */
 export function scoreEditorGames(games, results, baseWeights, breakdown = true) {
+  /** @type {Record<string, {metrics: Metrics, total: number, facts: Record<string, string>}>} */
   const teams = {},
-    operations = { metrics: {}, total: 0 },
-    metricNames = {};
+    operations = { metrics: /** @type {Metrics} */ ({}), total: 0 },
+    metricNames = /** @type {Record<string, string>} */ ({});
   let total = 0;
   const scored = results.map((dr, i) => {
     const schedule = games
@@ -82,6 +95,7 @@ export function scoreEditorGames(games, results, baseWeights, breakdown = true) 
       .map((g) => ({ ...g, home: g.home - 1, away: g.away - 1 }));
     const weights = { ...baseWeights, ...dr.weights };
     const details = scoreDetails(schedule, dr.division.numTeams, dr.slots);
+    /** @type {Metrics} */
     const teamSums = {};
     if (breakdown) {
       const ctx = makeScoreContext(
@@ -93,7 +107,7 @@ export function scoreEditorGames(games, results, baseWeights, breakdown = true) 
       for (let t = 0; t < dr.division.numTeams; t++) {
         const tg = schedule.filter((g) => g.home === t || g.away === t);
         const terms = teamTerms(tg, ctx, early),
-          metrics = {};
+          metrics = /** @type {Metrics} */ ({});
         for (const key of TEAM_SUM_KEYS) {
           metrics[key] = terms[key] * (weights[key] || 0);
           teamSums[key] = (teamSums[key] || 0) + metrics[key];
@@ -122,8 +136,8 @@ export function scoreEditorGames(games, results, baseWeights, breakdown = true) 
         };
       }
     }
-    for (const key in baseWeights) {
-      const value = (details[key] || 0) * (weights[key] || 0);
+    for (const key of /** @type {WeightKey[]} */ (Object.keys(baseWeights))) {
+      const value = (key in details ? details[/** @type {keyof typeof details} */ (key)] : 0) * (weights[key] || 0);
       total += value;
       // Team terms are unrounded; carry scoreDetails rounding and collective
       // balance terms in this residual so the displayed breakdown sums exactly.
@@ -131,15 +145,15 @@ export function scoreEditorGames(games, results, baseWeights, breakdown = true) 
       const opKey = `${i}:${key}`;
       operations.metrics[opKey] = residual;
       metricNames[opKey] = `${dr.division.name} · ${WEIGHT_LABELS[key] || key}${
-        TEAM_SUM_KEYS.includes(key) ? ' (rounding)' : ''
+        TEAM_SUM_KEYS.includes(/** @type {typeof TEAM_SUM_KEYS[number]} */ (key)) ? ' (rounding)' : ''
       }`;
     }
     return { ...dr, schedule, details };
   });
-  for (const [key, fn] of [
+  for (const [key, fn] of /** @type {[WeightKey, typeof scoreWeekendOtherDivField][]} */ ([
     ['fieldDivisionClustering', scoreCrossfieldDivisionClustering],
     ['weekendOtherDivField', scoreWeekendOtherDivField],
-  ]) {
+  ])) {
     const value = fn(scored) * (baseWeights[key] || 0);
     total += value;
     operations.metrics[key] = value;

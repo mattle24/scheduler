@@ -1,4 +1,4 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-nocheck -- UI event and window-handler migration is pending.
 import { restoreSchedule, clearSchedule, startSchedule, getScheduleSnapshot, isScheduleUnsaved } from './scheduleSession.js';
 import { SCHEDULE_STORAGE_KEY } from './scheduleStorage.js';
 import { STORAGE_KEY, loadState, readSetup, saveState, debouncedSave, cancelSave, flushSave, clearSavedState, isSetupUnsaved } from './state.js';

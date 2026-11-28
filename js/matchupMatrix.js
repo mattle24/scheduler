@@ -1,21 +1,30 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-check
+/** @typedef {import('./types.js').Game} Game */
+/** @typedef {{size: number, games: number, low: number, high: number}} Group */
+/** @typedef {{group: Group, games: Game[]}} Pair */
 import { formatTimeDisplay, timeSortKey } from './utils.js';
 
+/** @param {number} team */
 const teamLabel = team => `${team + 1}B`;
+/** @param {number} a @param {number} b */
 const pairKey = (a, b) => a < b ? `${a}:${b}` : `${b}:${a}`;
+/** @param {number} a @param {number} b @param {boolean} leagueSplit */
 const groupName = (a, b, leagueSplit) => {
   if (!leagueSplit) return 'All pairings';
   return a % 2 === b % 2 ? 'Within-league pairings' : 'Cross-league pairings';
 };
 
+/** @param {Game[]} schedule @param {number} numTeams @param {boolean} leagueSplit */
 export function summarizeMatchups(schedule, numTeams, leagueSplit) {
+  /** @type {Map<string, Pair>} */
   const pairs = new Map();
+  /** @type {Map<string, Group>} */
   const groups = new Map();
   for (let a = 0; a < numTeams; a++) {
     for (let b = a + 1; b < numTeams; b++) {
       const name = groupName(a, b, leagueSplit);
-      if (!groups.has(name)) groups.set(name, { size: 0, games: 0 });
-      const group = groups.get(name);
+      if (!groups.has(name)) groups.set(name, /** @type {Group} */ ({ size: 0, games: 0 }));
+      const group = /** @type {Group} */ (groups.get(name));
       group.size++;
       pairs.set(pairKey(a, b), { group, games: [] });
     }
@@ -35,6 +44,7 @@ export function summarizeMatchups(schedule, numTeams, leagueSplit) {
   return { pairs, groups };
 }
 
+/** @param {HTMLElement} container @param {Game[]} schedule @param {number} numTeams @param {boolean} leagueSplit */
 export function renderMatchupMatrix(container, schedule, numTeams, leagueSplit) {
   const { pairs, groups } = summarizeMatchups(schedule, numTeams, leagueSplit);
   const card = document.createElement('section');
@@ -63,6 +73,7 @@ export function renderMatchupMatrix(container, schedule, numTeams, leagueSplit) 
   corner.scope = 'col';
   header.append(corner);
   corner.textContent = 'Team';
+/** @param {HTMLTableRowElement} row @param {number} team @param {string} scope */
   const teamHeader = (row, team, scope) => {
     const cell = document.createElement('th');
     cell.scope = scope;
@@ -76,6 +87,7 @@ export function renderMatchupMatrix(container, schedule, numTeams, leagueSplit) 
   details.hidden = true;
   details.setAttribute('aria-live', 'polite');
   const body = table.createTBody();
+  /** @type {HTMLButtonElement|undefined} */
   let selected;
   for (let a = 0; a < numTeams; a++) {
     const row = body.insertRow();
@@ -86,7 +98,7 @@ export function renderMatchupMatrix(container, schedule, numTeams, leagueSplit) 
         cell.textContent = '—';
         continue;
       }
-      const { group, games } = pairs.get(pairKey(a, b));
+      const { group, games } = /** @type {Pair} */ (pairs.get(pairKey(a, b)));
       const count = games.length;
       const status = count < group.low ? 'Below range' : count > group.high ? 'Above range' : '';
       const label = `${teamLabel(Math.min(a, b))} vs ${teamLabel(Math.max(a, b))}`;

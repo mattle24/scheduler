@@ -1,57 +1,63 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-check
+/** @typedef {import('./types.js').Setup} Setup */
+/** @typedef {import('./types.js').WeightKey} WeightKey */
 import { WEIGHTS } from './constants.js';
 
 export const STORAGE_KEY = 'scheduler_state';
 
 // ─── LocalStorage Persistence ───────────────────────────────────────────────
 
+/** @returns {Setup} */
 function readSetup() {
   const rows = document.querySelectorAll('#divisionTable tbody tr:not(.div-weights-row)');
   const divisions = [];
   for (const tr of rows) {
+    /** @type {Partial<Record<WeightKey, string>>} */
     const weightOverrides = {};
-    for (const input of tr.nextElementSibling.querySelectorAll('[data-weight]')) {
-      weightOverrides[input.dataset.weight] = input.value;
+    for (const input of (/** @type {Element} */ (tr.nextElementSibling)).querySelectorAll(/** @type {'input'} */ (/** @type {unknown} */ ('[data-weight]')))) {
+      weightOverrides[/** @type {WeightKey} */ (input.dataset.weight)] = input.value;
     }
     const uncheckedFields = [];
-    for (const cb of tr.querySelectorAll('.div-fields input[type="checkbox"]')) {
+    for (const cb of tr.querySelectorAll(/** @type {'input'} */ (/** @type {unknown} */ ('.div-fields input[type="checkbox"]')))) {
       if (!cb.checked) uncheckedFields.push(cb.value);
     }
     const excludedDays = [];
-    for (const cb of tr.querySelectorAll('.div-excluded-days input[type="checkbox"]')) {
+    for (const cb of tr.querySelectorAll(/** @type {'input'} */ (/** @type {unknown} */ ('.div-excluded-days input[type="checkbox"]')))) {
       if (cb.checked) excludedDays.push(parseInt(cb.value));
     }
     divisions.push({
-      name: tr.querySelector('.div-name').value,
-      numTeams: tr.querySelector('.div-teams').value,
-      gamesPerTeam: tr.querySelector('.div-games').value,
-      leagueSplit: tr.querySelector('.div-league').checked,
+      name: (/** @type {HTMLInputElement} */ (tr.querySelector('.div-name'))).value,
+      numTeams: (/** @type {HTMLInputElement} */ (tr.querySelector('.div-teams'))).value,
+      gamesPerTeam: (/** @type {HTMLInputElement} */ (tr.querySelector('.div-games'))).value,
+      leagueSplit: (/** @type {HTMLInputElement} */ (tr.querySelector('.div-league'))).checked,
       uncheckedFields,
       excludedDays,
       weightOverrides
     });
   }
 
+  /** @type {Partial<Record<WeightKey, string>>} */
   const weights = {};
-  for (const key in WEIGHTS) {
+  for (const key of /** @type {WeightKey[]} */ (Object.keys(WEIGHTS))) {
     const el = document.getElementById('w_' + key);
-    if (el) weights[key] = el.value;
+    if (el) weights[key] = /** @type {HTMLInputElement} */ (el).value;
   }
 
   return {
     divisions,
-    tsv: document.getElementById('tsvInput').value,
+    tsv: (/** @type {HTMLTextAreaElement} */ (document.getElementById('tsvInput'))).value,
     weights,
-    fileName: document.getElementById('fileName').textContent
+    fileName: (/** @type {string} */ ((/** @type {HTMLElement} */ (document.getElementById('fileName'))).textContent))
   };
 }
 
 function loadState() {
   let state;
-  try { state = JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch (e) { return null; }
+  try { state = JSON.parse(/** @type {string} */ (localStorage.getItem(STORAGE_KEY))); } catch (e) { return null; }
   return state;
 }
 
+/** @type {ReturnType<typeof setTimeout>|undefined} */
 let saveTimer;
 let setupUnsaved = false;
 
@@ -59,6 +65,7 @@ function isSetupUnsaved() {
   return setupUnsaved;
 }
 
+/** @param {boolean} unsaved */
 function setSaveStatus(unsaved) {
   if (setupUnsaved === unsaved) return;
   setupUnsaved = unsaved;

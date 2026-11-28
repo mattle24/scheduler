@@ -1,4 +1,10 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-check
+/** @typedef {import('./types.js').Game} Game */
+/** @typedef {import('./types.js').Slot} Slot */
+/** @typedef {import('./types.js').Weights} Weights */
+/** @typedef {{fieldContinuity: number, loneWeekendGame: number, clust: number, otherDiv: number}} FieldTerms */
+/** @typedef {{times: {t: number, div: string}[], weekendDivs: Set<string>}} OtherField */
+/** @typedef {{indices: number[], teams: Set<number>, fds: Set<string>}} PendingMove */
 import { WEIGHTS } from './constants.js';
 import { timeSortKey } from './utils.js';
 import {
@@ -7,6 +13,7 @@ import {
 } from './scoring.js';
 
 const SELF = '\u0000self';
+/** @param {number} dow */
 const isWeekendDow = dow => dow === 0 || dow === 6;
 
 // Incremental version of scoreCandidate + scoreCrossDivision for the annealer.
@@ -25,7 +32,9 @@ const isWeekendDow = dow => dow === 0 || dow === 6;
 // scoreCrossDivision up to scoreDetails' 2-decimal rounding of each metric.
 // Team membership of a game (home/away) must not change between begin/end.
 class IncrementalScorer {
+  /** @param {Game[]} games @param {number} numTeams @param {Slot[]} slots @param {Weights} weights @param {Game[]|null} otherGames */
   constructor(games, numTeams, slots, weights, otherGames) {
+    /** @type {Game[]} */
     this.games = games;
     this.numTeams = numTeams;
     const W = weights || WEIGHTS;
@@ -35,14 +44,16 @@ class IncrementalScorer {
     this.wOther = (otherGames && otherGames.length) ? (W.weekendOtherDivField || 0) : 0;
 
     // Team → game indices (fixed for the scorer's lifetime)
+    /** @type {number[][]} */
     this.teamGameIdx = [];
     for (let t = 0; t < numTeams; t++) this.teamGameIdx.push([]);
     games.forEach((g, i) => { this.teamGameIdx[g.home].push(i); this.teamGameIdx[g.away].push(i); });
 
     // Other divisions' games per field+date (fixed during annealing)
+    /** @type {Map<string, OtherField>} */
     this.otherByFd = new Map(); // fdKey → { times: [{t, div}] sorted, weekendDivs: Set }
     if (this.wClust || this.wOther) {
-      for (const g of otherGames) {
+      for (const g of /** @type {Game[]} */ (otherGames)) {
         const key = g.field + '|' + g.date;
         let o = this.otherByFd.get(key);
         if (!o) { o = { times: [], weekendDivs: new Set() }; this.otherByFd.set(key, o); }
@@ -53,6 +64,7 @@ class IncrementalScorer {
     }
 
     // Date multiset for the season start (earlySeasonDensity window)
+    /** @type {Map<string, number>} */
     this.dateCounts = new Map();
     for (const g of games) this.dateCounts.set(g.date, (this.dateCounts.get(g.date) || 0) + 1);
     this.minDate = this._minDate();
@@ -63,18 +75,22 @@ class IncrementalScorer {
     for (let t = 0; t < numTeams; t++) this.teamCache.push(this._teamTerms(t));
 
     // Weekend date+time counts → timeSlotSpread (integer, maintained exactly)
+    /** @type {Map<string, number>} */
     this.dtCounts = new Map();
     this.timeSlotSpread = 0;
     for (const g of games) this._dtAdd(g, 1);
 
     // Field+date → this division's game indices, plus cached integer terms
+    /** @type {Map<string, Set<number>>} */
     this.fdGames = new Map();
     for (let i = 0; i < games.length; i++) this._fdIndexAdd(i);
+    /** @type {Map<string, FieldTerms>} */
     this.fdCache = new Map();
     this.fdSums = { fieldContinuity: 0, loneWeekendGame: 0, clust: 0, otherDiv: 0 };
     const allFd = new Set([...this.fdGames.keys(), ...this.otherByFd.keys()]);
     for (const key of allFd) this._fdRecompute(key);
 
+    /** @type {PendingMove|null} */
     this.pending = null;
   }
 
@@ -84,10 +100,12 @@ class IncrementalScorer {
     return m;
   }
 
+  /** @param {number} t */
   _teamTerms(t) {
     return teamTerms(this.teamGameIdx[t].map(i => this.games[i]), this.ctx, this.early);
   }
 
+  /** @param {Game} g @param {number} sign */
   _dtAdd(g, sign) {
     if (!isWeekendDow(g.dayOfWeek)) return;
     const key = g.date + '|' + g.time;
@@ -97,6 +115,7 @@ class IncrementalScorer {
     if (after === 0) this.dtCounts.delete(key); else this.dtCounts.set(key, after);
   }
 
+  /** @param {number} i @returns {string} */
   _fdIndexAdd(i) {
     const g = this.games[i];
     const key = g.field + '|' + g.date;
@@ -106,26 +125,29 @@ class IncrementalScorer {
     return key;
   }
 
+  /** @param {number} i @returns {string} */
   _fdIndexRemove(i) {
     const g = this.games[i];
     const key = g.field + '|' + g.date;
-    const s = this.fdGames.get(key);
+    const s = /** @type {Set<number>} */ (this.fdGames.get(key));
     s.delete(i);
     if (s.size === 0) this.fdGames.delete(key);
     return key;
   }
 
+  /** @param {string} key */
   _fdRecompute(key) {
     const old = this.fdCache.get(key);
-    if (old) for (const k in old) this.fdSums[k] -= old[k];
+    if (old) for (const k of /** @type {(keyof FieldTerms)[]} */ (Object.keys(old))) this.fdSums[k] -= old[k];
 
     const idxs = this.fdGames.get(key);
     const other = this.otherByFd.get(key);
     const term = { fieldContinuity: 0, loneWeekendGame: 0, clust: 0, otherDiv: 0 };
     let weekend = false;
+    /** @type {number[]} */
     let selfTimes = [];
     if (idxs && idxs.size) {
-      weekend = isWeekendDow(this.games[idxs.values().next().value].dayOfWeek);
+      weekend = isWeekendDow(this.games[/** @type {number} */ (idxs.values().next().value)].dayOfWeek);
       selfTimes = [...idxs].map(i => timeSortKey(this.games[i].time)).sort((a, b) => a - b);
       if (weekend) {
         const fd = fieldDateTerms(selfTimes, this.ctx.fieldDateTimes.get(key));
@@ -151,25 +173,28 @@ class IncrementalScorer {
       }
     }
 
-    for (const k in term) this.fdSums[k] += term[k];
+    for (const k of /** @type {(keyof FieldTerms)[]} */ (Object.keys(term))) this.fdSums[k] += term[k];
     this.fdCache.set(key, term);
   }
 
+  /** @param {number[]} indices */
   begin(indices) {
+    /** @type {Set<number>} */
     const teams = new Set();
+    /** @type {Set<string>} */
     const fds = new Set();
     for (const i of indices) {
       const g = this.games[i];
       teams.add(g.home); teams.add(g.away);
       this._dtAdd(g, -1);
       fds.add(this._fdIndexRemove(i));
-      this.dateCounts.set(g.date, this.dateCounts.get(g.date) - 1);
+      this.dateCounts.set(g.date, /** @type {number} */ (this.dateCounts.get(g.date)) - 1);
     }
     this.pending = { indices, teams, fds };
   }
 
   end() {
-    const { indices, teams, fds } = this.pending;
+    const { indices, teams, fds } = /** @type {PendingMove} */ (this.pending);
     this.pending = null;
     for (const i of indices) {
       const g = this.games[i];

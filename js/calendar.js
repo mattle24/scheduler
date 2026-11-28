@@ -1,24 +1,30 @@
-// @ts-nocheck -- Pending migration to checked JSDoc.
+// @ts-check
+/** @typedef {import('./types.js').Slot} Slot */
+/** @typedef {import('./types.js').Game & {divisionIndex?: number, divisionName?: string}} CalendarGame */
 import { isoWeek, addDays, timeSortKey, formatTimeDisplay } from './utils.js';
+/** @param {unknown} value */
 export const escapeHTML = (value) =>
   String(value).replace(
     /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+    (c) => (/** @type {Record<string, string>} */ ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }))[c]
   );
+/** @param {string} date */
 export const formatDate = (date) =>
   new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
   });
+/** @param {{date: string}[]} slots */
 export function calendarWeeks(slots) {
   const dates = slots.map((s) => s.date).sort();
   if (!dates.length) return [];
   const weeks = [];
-  for (let week = isoWeek(dates[0]); week <= isoWeek(dates.at(-1)); week = addDays(week, 7))
+  for (let week = isoWeek(dates[0]); week <= isoWeek(dates[dates.length - 1]); week = addDays(week, 7))
     weeks.push(week);
   return weeks;
 }
+/** @param {HTMLElement} container @param {CalendarGame[]} games @param {Slot[]} slots @param {{numTeams?: number, divisionIndex?: number, showOpenSlots?: boolean}} [options] */
 export function renderCalendar(
   container,
   games,
@@ -46,7 +52,7 @@ export function renderCalendar(
   const jump = document.createElement('select');
   jump.setAttribute('aria-label', 'Jump to week');
   weeks.forEach((w, i) =>
-    jump.add(new Option(`${formatDate(w)} – ${formatDate(addDays(w, 6))}`, i))
+    jump.add(new Option(`${formatDate(w)} – ${formatDate(addDays(w, 6))}`, String(i)))
   );
   const nav = document.createElement('div');
   nav.className = 'week-controls';
@@ -58,7 +64,7 @@ export function renderCalendar(
     const select = document.createElement('select');
     select.setAttribute('aria-label', 'Highlight team');
     select.add(new Option('All teams', ''));
-    for (let t = 0; t < numTeams; t++) select.add(new Option(`${t + 1}B`, t));
+    for (let t = 0; t < numTeams; t++) select.add(new Option(`${t + 1}B`, String(t)));
     select.onchange = () => {
       team = select.value;
       draw();
@@ -72,7 +78,7 @@ export function renderCalendar(
   function draw() {
     prev.disabled = index === 0;
     next.disabled = index === weeks.length - 1;
-    jump.value = index;
+    jump.value = String(index);
     board.innerHTML =
       '<div class="day-grid">' +
       Array.from({ length: 7 }, (_, offset) => {
@@ -95,7 +101,7 @@ export function renderCalendar(
           )}</strong></div>` +
           entries
             .map((g) =>
-              g.home === undefined
+              !('home' in g)
                 ? `<div class="slot vacant"><span class="slot-time">${formatTimeDisplay(
                     g.time
                   )}</span><small>Open</small></div>`
