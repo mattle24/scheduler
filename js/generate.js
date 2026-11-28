@@ -4,16 +4,25 @@ import { parseTSV } from './parser.js?v=3';
 import { buildSchedule } from './builder.js?v=3';
 import { scoreCrossfieldDivisionClustering, scoreDetails, scoreWeekendOtherDivField } from './scoring.js';
 import { readDivisions, readDivWeightOverrides, syncWeights } from './divisions.js?v=5';
-import { showError, clearError } from './render.js?v=3';
+import { showError, clearError } from './render.js?v=4';
+
+let generating = false;
+
+function isGenerating() {
+  return generating;
+}
 
 function generate() {
+  if (generating) return;
   clearError();
   document.getElementById('editTab').disabled = true;
   document.getElementById('results').classList.add('hidden');
   document.getElementById('resultsTab').disabled = true;
   const statusBox = document.getElementById('statusBox');
   statusBox.classList.remove('hidden');
-  statusBox.innerHTML = 'Preparing...';
+  statusBox.textContent = 'Preparing...';
+  generating = true;
+  document.dispatchEvent(new Event('scheduler:generation-status'));
 
   setTimeout(async () => {
     try {
@@ -28,12 +37,23 @@ function generate() {
       const MAX_ROUNDS = 3;
       const maxPasses = divs.length * (1 + MAX_ROUNDS);
       let completedPasses = 0;
+      statusBox.innerHTML = `
+        <div></div>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-label" id="progressLabel"></div>`;
+      const divisionLabel = statusBox.firstElementChild;
+      const progressFill = statusBox.querySelector('#progressFill');
+      const progressLabel = statusBox.querySelector('#progressLabel');
       const updateProgress = (activity, pct, score) => {
         const percent = Math.floor(completedPasses / maxPasses * 100);
-        document.getElementById('progressFill').style.width = percent + '%';
+        progressFill.style.width = percent + '%';
         const activityLabel = pct == null ? `${activity}…` : `${activity}: ${Math.round(pct * 100)}%`;
         const label = `${completedPasses} of up to ${maxPasses} passes completed — ${activityLabel}`;
-        document.getElementById('progressLabel').textContent = Number.isFinite(score) ? label + ' — quality score: ' + score.toFixed(1) + ' (lower is better)' : label;
+        progressLabel.textContent = Number.isFinite(score) ? label + ' — quality score: ' + score.toFixed(1) + ' (lower is better)' : label;
+      };
+      const showDivisionProgress = label => {
+        divisionLabel.textContent = label;
+        updateProgress('Building candidates', 0, Infinity);
       };
 
       // Strategy 2: Compute slot scarcity — how many divisions can use each slot
@@ -69,11 +89,7 @@ function generate() {
         const divWeightOverrides = divisionWeights[i];
 
         // Phase 1: Build
-        statusBox.innerHTML = `
-          <div>${divLabel}</div>
-          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-          <div class="progress-label" id="progressLabel">0% of maximum passes</div>`;
-        updateProgress('Building candidates', 0, Infinity);
+        showDivisionProgress(divLabel);
 
         const result = await buildSchedule(div.numTeams, div.gamesPerTeam, divSlots, updateProgress,
           { leagueSplit: div.leagueSplit, slotScarcity, weights: divWeightOverrides });
@@ -122,11 +138,7 @@ function generate() {
               div.fields.includes(s.field) && !claimedKeys.has(s.sortKey) && !div.excludedDays.includes(s.dayOfWeek)
             );
 
-            statusBox.innerHTML = `
-              <div>${divLabel}</div>
-              <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-              <div class="progress-label" id="progressLabel">0% of maximum passes</div>`;
-            updateProgress('Building candidates', 0, Infinity);
+            showDivisionProgress(divLabel);
 
             // Collect other divisions' games (tagged with division name) so the
             // greedy builder and optimizer can score cross-division clustering
@@ -176,14 +188,16 @@ function generate() {
       }
 
       startSchedule(divisionResults, allSlots, {...WEIGHTS});
-      statusBox.classList.add('hidden');
       document.getElementById('results').classList.remove('hidden');
 
     } catch (e) {
-      statusBox.classList.add('hidden');
       document.getElementById('resultsTab').disabled = !hasSchedule();
       document.getElementById('editTab').disabled = !hasSchedule();
       showError(e.message);
+    } finally {
+      statusBox.classList.add('hidden');
+      generating = false;
+      document.dispatchEvent(new Event('scheduler:generation-status'));
     }
   }, 50);
 }
@@ -207,4 +221,4 @@ function weightedScore(d, overrides) {
   return score;
 }
 
-export { generate, globalScore, weightedScore };
+export { generate, isGenerating, globalScore, weightedScore };

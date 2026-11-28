@@ -224,7 +224,7 @@ h1 { letter-spacing: -.02em; }
 @media print {
   body { padding: 0; max-width: 100%; background: #fff; font-size: 10pt; }
   .card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; padding: .75rem; }
-  #settingsCard, .main-tabs, .results-toc, .penalty-section, .explainer-section, .file-upload-row,
+  #settingsCard, .main-tabs, .backup-controls, .results-toc, .penalty-section, .explainer-section, .file-upload-row,
   #statusBox, #errorBox, .actions, button, .btn-primary, .btn-secondary { display: none !important; }
   h1 { font-size: 14pt; }
   .division-section > h2 { font-size: 12pt; border-bottom-width: 2px; }
@@ -350,11 +350,18 @@ h1 { letter-spacing: -.02em; }
 .page-header { padding: .5rem 0 .25rem; }
 .page-header h1 { color: #203e30; font-size: clamp(1.8rem, 4vw, 2.5rem); line-height: 1.15; letter-spacing: -.025em; margin-bottom: .5rem; }
 .page-header .subtitle { max-width: 48rem; line-height: 1.55; }
+.backup-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin-bottom: 1rem; }
+.backup-controls button:disabled { opacity: .55; cursor: not-allowed; }
+.unsaved-notice { color: #754600; font-size: .85rem; font-weight: 600; }
+.backup-status { flex-basis: 100%; color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
+.backup-status:empty { display: none; }
+.backup-status.failed { color: var(--danger); }
 #settingsCard > .card:first-child { border-top: 3px solid var(--primary); }
 .setup-step .section-label { letter-spacing: -.01em; }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #151b18; --primary: #8dbb94; --primary-hover: #a5cbaa; --border: #36443a; }
   .page-header h1 { color: #e1eee1; }
+  .unsaved-notice { color: #f6cd86; }
   .step-number, .btn-primary { color: #14251a; }
 }
 

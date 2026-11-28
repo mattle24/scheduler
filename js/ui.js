@@ -1,13 +1,14 @@
-import { restoreSchedule, clearSchedule } from './scheduleSession.js';
+import { restoreSchedule, clearSchedule, startSchedule, getScheduleSnapshot, isScheduleUnsaved } from './scheduleSession.js';
 import { SCHEDULE_STORAGE_KEY } from './scheduleStorage.js';
-import { STORAGE_KEY, loadState, debouncedSave, cancelSave, flushSave } from './state.js';
+import { STORAGE_KEY, loadState, readSetup, saveState, debouncedSave, cancelSave, flushSave, clearSavedState, isSetupUnsaved } from './state.js';
+import { encodeBackup, decodeBackup } from './schedulerBackup.js';
 import {
   addDivisionRow, removeDivisionRow, buildPenaltyGrid,
   updateFieldChoices, resetWeights, togglePenalties,
   toggleDivWeights, clearCachedFields, readDivisions
 } from './divisions.js?v=5';
-import { downloadCSV, showError, clearError } from './render.js?v=3';
-import { generate } from './generate.js?v=10';
+import { downloadCSV, showError, clearError } from './render.js?v=4';
+import { generate, isGenerating } from './generate.js?v=11';
 import { parseTSV } from './parser.js?v=3';
 import { parseDate, dateStr, formatTimeDisplay } from './utils.js';
 
@@ -179,8 +180,83 @@ function clearInputs() {
   cancelSave();
   restoreState(null);
   clearError();
-  try { localStorage.removeItem(STORAGE_KEY); } catch {}
+  clearSavedState();
   clearSchedule();
+}
+
+function showBackupStatus(message = '', failed = false) {
+  const status = document.getElementById('backupStatus');
+  status.textContent = message;
+  status.classList.toggle('failed', failed);
+}
+
+function exportBackup() {
+  try {
+    const text = encodeBackup(readSetup(), getScheduleSnapshot());
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'little-league-scheduler.json';
+    document.body.appendChild(link);
+    try {
+      link.click();
+    } finally {
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    showBackupStatus('JSON backup download started.');
+  } catch (err) {
+    showBackupStatus(`Could not export the backup. ${err.message}`, true);
+  }
+}
+
+let importingBackup = false;
+
+function updateImportButton() {
+  document.getElementById('importBackup').disabled = importingBackup || isGenerating();
+}
+
+async function importBackup(event) {
+  const input = event.currentTarget;
+  const file = input.files[0];
+  input.value = '';
+  if (!file || importingBackup) return;
+  importingBackup = true;
+  updateImportButton();
+  showBackupStatus();
+  try {
+    const { setup, schedule } = decodeBackup(await file.text());
+    if (isGenerating()) throw new Error('Wait for schedule generation to finish, then try again.');
+    if (!window.confirm('Replace the current setup and schedule with this JSON backup?')) return;
+
+    cancelSave();
+    restoreState(setup);
+    clearError();
+    const scheduleSaved = schedule
+      ? startSchedule(schedule.results, schedule.allSlots, schedule.baseWeights)
+      : clearSchedule();
+    const setupSaved = saveState();
+    showBackupStatus(setupSaved && scheduleSaved
+      ? 'JSON backup imported and saved in this browser.'
+      : 'JSON backup imported. Browser storage could not save all imported data.');
+  } catch (err) {
+    showBackupStatus(`Could not import the backup. ${err.message}`, true);
+  } finally {
+    importingBackup = false;
+    updateImportButton();
+  }
+}
+
+function warnBeforeLeaving(event) {
+  event.preventDefault();
+  event.returnValue = true;
+}
+
+function updateSaveWarning() {
+  const unsaved = isSetupUnsaved() || isScheduleUnsaved();
+  document.getElementById('unsavedNotice').hidden = !unsaved;
+  if (unsaved) window.addEventListener('beforeunload', warnBeforeLeaving);
+  else window.removeEventListener('beforeunload', warnBeforeLeaving);
 }
 
 function showView(view) {
@@ -247,7 +323,6 @@ function handleFileUpload(e) {
   if (file.name.match(/\.xlsx?$/i)) {
     showError('Excel files are not supported. Copy and paste the spreadsheet cells, or save the sheet as a tab-separated text file and upload it.');
     e.target.value = '';
-    document.getElementById('fileName').textContent = '';
     return;
   }
 
@@ -280,6 +355,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('setupTab').addEventListener('click', () => showView('setup'));
   document.getElementById('editTab').addEventListener('click', () => showView('edit'));
   document.getElementById('resultsTab').addEventListener('click', () => showView('results'));
+  document.getElementById('exportBackup').addEventListener('click', exportBackup);
+  const backupFile = document.getElementById('backupFile');
+  document.getElementById('importBackup').addEventListener('click', () => backupFile.click());
+  backupFile.addEventListener('change', importBackup);
+  document.addEventListener('scheduler:generation-status', updateImportButton);
+  document.addEventListener('scheduler:save-status', updateSaveWarning);
   let remoteScheduleUpdate = false;
   document.addEventListener('scheduler:results-ready', () => {
     document.getElementById('resultsTab').disabled = false;
@@ -292,17 +373,18 @@ document.addEventListener('DOMContentLoaded', () => {
   buildPenaltyGrid();
   restoreState(loadState());
   restoreSchedule();
+  updateSaveWarning();
 
   window.addEventListener('storage', (event) => {
     if (event.storageArea !== localStorage) return;
-    if (event.key === STORAGE_KEY || event.key === null) {
+    if ((event.key === STORAGE_KEY || event.key === null) && !isSetupUnsaved()) {
       // A newer write may have landed while this event was queued.
       if (event.key === null || localStorage.getItem(STORAGE_KEY) === event.newValue) {
         cancelSave();
         restoreState(loadState());
       }
     }
-    if (event.key === SCHEDULE_STORAGE_KEY || event.key === null) {
+    if ((event.key === SCHEDULE_STORAGE_KEY || event.key === null) && !isScheduleUnsaved()) {
       if (event.key === null || localStorage.getItem(SCHEDULE_STORAGE_KEY) === event.newValue) {
         remoteScheduleUpdate = true;
         try {

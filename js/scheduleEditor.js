@@ -23,7 +23,7 @@ export function mountEditor(session, onChange) {
 
             <div class="week-controls"><button type="button" id="previousWeek" aria-label="Previous week">←</button><label class="week-jump">Jump to week <select id="weekJump" aria-label="Jump to week"></select></label><button type="button" id="nextWeek" aria-label="Next week">→</button></div>
           </div>
-          <p class="section-help">Select a game, then select an open time to move it or another game to swap, including one in another division. Both games must be eligible for their new slots. Applying a change updates Results and CSV. Undo history lasts until refresh or generation. Use Clear selection when you want to choose a different game. Hover over a slot for its action or a blocked reason.</p>
+          <p class="section-help">Select a game, then select an open time to move it or another game to swap, including one in another division. Both games must be eligible for their new slots. Applying a change updates Results and CSV. Refreshing, generating, or importing a backup starts a fresh undo history. Use Clear selection when you want to choose a different game. Hover over a slot for its action or a blocked reason.</p>
           <div class="legend"><span><i class="legend-game"></i> Scheduled game</span><span><i class="legend-source"></i> Selected game</span><span><i class="legend-open"></i> Legal move</span><span><i class="legend-blocked"></i> Blocked</span></div>
           <div id="fieldBoard" class="field-board"></div>
         </section>

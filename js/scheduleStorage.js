@@ -3,9 +3,14 @@ import { slotKey } from './utils.js';
 export const SCHEDULE_STORAGE_KEY = 'scheduler_schedule_v1';
 // localStorage stores UTF-16 strings; bound the snapshot to about 1 MB.
 export const MAX_SNAPSHOT_CHARS = 500000;
-export function encodeSchedule(session) {
-  const indices = new Map(session.allSlots.map((slot, i) => [slotKey(slot), i]));
-  const data = {
+
+// Two availability entries can spell the same time as 9:00am and 09:00am.
+// Keep the spelling assigned to the game while enforcing occupancy by slotKey.
+const exactSlotKey = slot => `${slot.date}-${slot.time}-${slot.field}`;
+
+export function packSchedule(session) {
+  const indices = new Map(session.allSlots.map((slot, i) => [exactSlotKey(slot), i]));
+  return {
     version: 1,
     baseWeights: session.baseWeights,
     slots: session.allSlots.map((s) => [
@@ -20,19 +25,23 @@ export function encodeSchedule(session) {
       division: r.division,
       weights: r.weights,
       games: r.schedule.map((g) => {
-        const index = indices.get(slotKey(g));
+        const index = indices.get(exactSlotKey(g));
         if (index === undefined) throw new Error('Game has no available slot');
         return [index, g.home, g.away];
       }),
     })),
   };
-  const text = JSON.stringify(data);
+}
+export function encodeSchedule(session) {
+  const text = JSON.stringify(packSchedule(session));
   if (text.length > MAX_SNAPSHOT_CHARS) throw new Error('Schedule exceeds storage limit');
   return text;
 }
 export function decodeSchedule(text) {
   if (text.length > MAX_SNAPSHOT_CHARS) throw new Error('Saved schedule exceeds storage limit');
-  const data = JSON.parse(text);
+  return unpackSchedule(JSON.parse(text));
+}
+export function unpackSchedule(data) {
   if (
     data.version !== 1 ||
     !Array.isArray(data.slots) ||
@@ -81,7 +90,7 @@ export function decodeSchedule(text) {
       if (
         !Number.isInteger(index) ||
         !slot ||
-        occupied.has(index) ||
+        occupied.has(slot.sortKey) ||
         !Number.isInteger(home) ||
         !Number.isInteger(away) ||
         home < 0 ||
@@ -93,7 +102,7 @@ export function decodeSchedule(text) {
         d.excludedDays.includes(slot.dayOfWeek)
       )
         throw new Error('Invalid saved game');
-      occupied.add(index);
+      occupied.add(slot.sortKey);
       return { ...slot, home, away };
     });
     return { division: d, weights: r.weights, schedule };

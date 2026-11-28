@@ -1,4 +1,4 @@
-import { renderCalendar } from './calendar.js';
+import { escapeHTML, renderCalendar } from './calendar.js';
 import { renderScheduleAudit } from './scheduleAudit.js';
 import { renderOpponentTimeline } from './opponentTimeline.js';
 import { renderMatchupMatrix } from './matchupMatrix.js';
@@ -22,7 +22,7 @@ function renderMultiDivisionResults(divisionResults, allSlots, { reviewState = [
     const links = [];
     links.push('<a href="#division-schedules">Division Schedules</a>');
     for (let i = 0; i < divisionResults.length; i++) {
-      links.push(`<a href="#division-${i}">${divisionResults[i].division.name} Deepdive</a>`);
+      links.push(`<a href="#division-${i}">${escapeHTML(divisionResults[i].division.name)} Deepdive</a>`);
     }
     if (fieldNames.length > 0) {
       links.push('<a href="#fields">Fields</a>');
@@ -288,7 +288,7 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
       // One row per division
       for (let di = 0; di < divNames.length; di++) {
         const divName = divNames[di];
-        html += `<tr><td class="team-name">${divName}</td>`;
+        html += `<tr><td class="team-name">${escapeHTML(divName)}</td>`;
         for (let i = 0; i < weekColumns.length; i++) {
           const col = weekColumns[i];
           const dateStart = i === 0 || col.date !== weekColumns[i - 1].date;
@@ -311,7 +311,7 @@ function renderFieldSections(container, divisionResults, allSlots, fieldNames) {
             const game = gameEntry.game;
             const date = new Date(col.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
             const details = `${divName}: ${game.away + 1}B vs ${game.home + 1}B · ${date} · ${formatTimeDisplay(col.time).replace(/^0/, '').replace(':00 ', ' ')}`;
-            const escaped = details.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const escaped = escapeHTML(details);
             content = `<button type="button" class="field-game-button" aria-label="${escaped}" data-game-details="${escaped}"></button>`;
           }
           html += `<td class="heatmap-cell ${cls}${dateStart ? ' date-start' : ''}"${style}>${content}</td>`;
@@ -592,7 +592,7 @@ function renderDivisionBlock(container, schedule, details, numTeams, leagueSplit
   html += '</tr><tr><th scope="col">Total</th><th scope="col">Home</th><th scope="col">Away</th>';
   if (leagueSplit) html += '<th scope="col">Intra</th><th scope="col">Inter</th>';
   html += '<th class="group-start" scope="col">Days between<br>games (avg)</th><th scope="col">Consecutive-day<br>games</th>';
-  for (const [i, f] of allFields.entries()) html += `<th class="${i === 0 ? 'group-start' : ''}" scope="col">${f}</th>`;
+  for (const [i, f] of allFields.entries()) html += `<th class="${i === 0 ? 'group-start' : ''}" scope="col">${escapeHTML(f)}</th>`;
   for (const [i, b] of activeBuckets.entries()) html += `<th class="${i === 0 ? 'group-start' : ''}" scope="col">${bucketLabels[b] || b}</th>`;
   html += '</tr></thead><tbody>';
   for (const r of teamData) {
@@ -628,7 +628,7 @@ function renderScheduleTable(container, schedule, divisionName) {
     const d = new Date(g.date + 'T00:00:00');
     const day = DAYS[d.getDay()].slice(0, 3);
     const dateDisplay = `${d.getMonth() + 1}/${d.getDate()}`;
-    shtml += `<tr><td>${day}</td><td>${dateDisplay}</td><td>${formatTimeDisplay(g.time)}</td><td>${g.field}</td><td>${g.away + 1}B</td><td>${g.home + 1}B</td></tr>`;
+    shtml += `<tr><td>${day}</td><td>${dateDisplay}</td><td>${formatTimeDisplay(g.time)}</td><td>${escapeHTML(g.field)}</td><td>${g.away + 1}B</td><td>${g.home + 1}B</td></tr>`;
   }
   shtml += '</tbody></table>';
 

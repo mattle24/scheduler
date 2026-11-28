@@ -4,7 +4,7 @@ export const STORAGE_KEY = 'scheduler_state';
 
 // ─── LocalStorage Persistence ───────────────────────────────────────────────
 
-function saveState() {
+function readSetup() {
   const rows = document.querySelectorAll('#divisionTable tbody tr:not(.div-weights-row)');
   const divisions = [];
   for (const tr of rows) {
@@ -37,14 +37,12 @@ function saveState() {
     if (el) weights[key] = el.value;
   }
 
-  const state = {
+  return {
     divisions,
     tsv: document.getElementById('tsvInput').value,
     weights,
     fileName: document.getElementById('fileName').textContent
   };
-
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* quota exceeded */ }
 }
 
 function loadState() {
@@ -54,6 +52,42 @@ function loadState() {
 }
 
 let saveTimer;
+let setupUnsaved = false;
+
+function isSetupUnsaved() {
+  return setupUnsaved;
+}
+
+function setSaveStatus(unsaved) {
+  if (setupUnsaved === unsaved) return;
+  setupUnsaved = unsaved;
+  document.dispatchEvent(new CustomEvent('scheduler:save-status', {
+    detail: { part: 'setup', unsaved },
+  }));
+}
+
+function saveState() {
+  cancelSave();
+  let saved = false;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(readSetup()));
+    saved = true;
+  } catch {}
+  setSaveStatus(!saved);
+  return saved;
+}
+
+function clearSavedState() {
+  cancelSave();
+  let cleared = false;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    cleared = true;
+  } catch {}
+  setSaveStatus(!cleared);
+  return cleared;
+}
+
 function cancelSave() {
   clearTimeout(saveTimer);
   saveTimer = undefined;
@@ -61,13 +95,16 @@ function cancelSave() {
 
 function flushSave() {
   if (saveTimer === undefined) return;
-  cancelSave();
-  saveState();
+  return saveState();
 }
 
 function debouncedSave() {
   cancelSave();
   saveTimer = setTimeout(flushSave, 500);
+  setSaveStatus(true);
 }
 
-export { loadState, debouncedSave, cancelSave, flushSave };
+export {
+  readSetup, loadState, saveState, clearSavedState, isSetupUnsaved,
+  debouncedSave, cancelSave, flushSave,
+};

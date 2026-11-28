@@ -1,13 +1,34 @@
 import { WEIGHTS } from './constants.js';
 import { scoreDetails } from './scoring.js';
-import { renderMultiDivisionResults, setLastCSV, formatMultiDivisionCSV } from './render.js?v=3';
+import { renderMultiDivisionResults, setLastCSV, formatMultiDivisionCSV } from './render.js?v=4';
 import { SCHEDULE_STORAGE_KEY, saveScheduleSnapshot, decodeSchedule } from './scheduleStorage.js';
 import { mountEditor } from './scheduleEditor.js';
 
 let session = null;
+let scheduleUnsaved = false;
+
 export function hasSchedule() {
   return session !== null;
 }
+
+export function getScheduleSnapshot() {
+  if (!session) return null;
+  const { results, allSlots, baseWeights } = session;
+  return { results, allSlots, baseWeights };
+}
+
+export function isScheduleUnsaved() {
+  return scheduleUnsaved;
+}
+
+function setSaveStatus(unsaved) {
+  if (scheduleUnsaved === unsaved) return;
+  scheduleUnsaved = unsaved;
+  document.dispatchEvent(new CustomEvent('scheduler:save-status', {
+    detail: { part: 'schedule', unsaved },
+  }));
+}
+
 function storageNotice(message = '') {
   const el = document.getElementById('scheduleStorageNotice');
   el.textContent = message;
@@ -18,11 +39,8 @@ function persist() {
   try {
     saved = saveScheduleSnapshot(session, localStorage);
   } catch {}
-  storageNotice(
-    saved
-      ? ''
-      : 'This schedule is available in this session, but could not be saved for refresh. Download CSV to keep a copy.'
-  );
+  setSaveStatus(!saved);
+  return saved;
 }
 function refreshResults() {
   for (const r of session.results)
@@ -66,8 +84,11 @@ export function startSchedule(results, allSlots, baseWeights = { ...WEIGHTS }, s
     persist();
   });
   refreshResults();
-  if (save) persist();
+  storageNotice();
+  const saved = !save || persist();
+  if (!save) setSaveStatus(false);
   document.dispatchEvent(new Event('scheduler:results-ready'));
+  return saved;
 }
 export function restoreSchedule({ remote = false } = {}) {
   try {
@@ -78,24 +99,32 @@ export function restoreSchedule({ remote = false } = {}) {
     }
     const { results, allSlots, baseWeights } = decodeSchedule(text);
     startSchedule(results, allSlots, baseWeights, false);
-    storageNotice();
   } catch {
-    clearSchedule({ remote });
+    clearSchedule({ remote: true });
+    if (!remote) removeSavedSchedule();
     storageNotice('The saved schedule could not be restored. Generate a new schedule from Setup.');
   }
 }
+
+function removeSavedSchedule() {
+  try {
+    localStorage.removeItem(SCHEDULE_STORAGE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function clearSchedule({ remote = false } = {}) {
   session = null;
-  if (!remote) {
-    try {
-      localStorage.removeItem(SCHEDULE_STORAGE_KEY);
-    } catch {}
-  }
+  const saved = remote || removeSavedSchedule();
   setLastCSV('');
   document.getElementById('results').replaceChildren();
   document.getElementById('editSchedule').replaceChildren();
   document.getElementById('editTab').disabled = true;
   document.getElementById('resultsTab').disabled = true;
   storageNotice();
+  setSaveStatus(!saved);
   document.dispatchEvent(new Event('scheduler:schedule-cleared'));
+  return saved;
 }
