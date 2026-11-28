@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { WEIGHTS, WEIGHT_LABELS, WEIGHT_DESCRIPTIONS } from './constants.js';
 import { debouncedSave } from './state.js';
 

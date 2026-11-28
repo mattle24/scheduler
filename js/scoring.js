@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { WEIGHTS, WKND_BUCKET_IMPORTANCE } from './constants.js';
 import { slotBucket, dayNum, timeSortKey, addDays } from './utils.js';
 

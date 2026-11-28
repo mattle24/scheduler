@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { WEIGHTS, NUM_ATTEMPTS, ANNEAL_ITERATIONS } from './constants.js';
 import { isoWeek, addDays, hasThreeInFourDays, shuffle } from './utils.js';
 import { generateTournamentRounds, selectMatchups, selectMatchupsWithLeagues, validateLeagueSplit, assignHomeAway, rebalanceHomeAway } from './matchups.js';

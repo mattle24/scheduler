@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import {
   scoreEditorGames,
   teamMetricNames,

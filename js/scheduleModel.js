@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { WEIGHT_LABELS } from './constants.js';
 import {
   scoreDetails,

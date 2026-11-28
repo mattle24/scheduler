@@ -1,7 +1,10 @@
+// @ts-check
+/** @typedef {import("./types.js").WeightKey} WeightKey */
 const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const NUM_ATTEMPTS = 250;
 // Simulated annealing iterations per division build (moves are scored incrementally)
 let ANNEAL_ITERATIONS = 20000;
+/** @param {number} n */
 function setAnnealIterations(n) { ANNEAL_ITERATIONS = n; }
 const WKND_BUCKET_THRESHOLDS = [630, 900]; // minutes: early < 10:30am, mid 10:30am–3pm, late >= 3pm
 const WKND_BUCKET_IMPORTANCE = { WKND_EARLY: 1.5, WKND_MID: 0.5, WKND_LATE: 1.5 };
@@ -26,6 +29,7 @@ const WEIGHTS = {
   weekendSitouts: 20,
 };
 
+/** @type {Record<WeightKey, string>} */
 const WEIGHT_LABELS = {
   btbBalance: 'Back-to-Back Balance (even back-to-back games across teams)',
   earlySeasonDensity: 'Early Season Density (games within 2 days in first 7 days)',
@@ -45,12 +49,14 @@ const WEIGHT_LABELS = {
   weekendSitouts: 'Weekend Sit-outs (no games in a weekend)',
 };
 
+/** @type {Record<WeightKey, string>} */
 const WEIGHT_DESCRIPTIONS = {
   btbBalance: 'Penalizes uneven back-to-back (consecutive day) games across teams using an exponential penalty on the spread between the team with the most and fewest back-to-backs. A spread of 0 = no penalty; each additional game of spread grows the penalty exponentially.',
   fieldDivisionClustering: 'Penalizes switching between divisions on the same field in a day. A-B-A patterns (switching back and forth) are penalized much more heavily than A-A-B (single switch).',
   earlySeasonDensity: 'Penalizes games scheduled within 2 days of each other during the first 7 days of the season.',
   fieldBalance: 'Penalizes uneven distribution of field assignments per team. Higher = teams play at each field more equally.',
   fieldContinuity: 'Penalizes gaps between same-division games on the same field on weekends. Back-to-back games reduce umpire travel. Higher = prefer consecutive same-division games.',
+  loneWeekendGame: 'Penalizes a division having only one game on a field on a weekend day.',
   gapVariance: 'Penalizes uneven spacing between games across a team\'s schedule. Higher = more consistent rest for all teams.',
   satSunBalance: 'Penalizes uneven split of Saturday vs Sunday games per team. Higher = equal Sat & Sun games.',
   shortGapPenalty: 'Adds 1/gap-days for each pair of consecutive games. Strongly penalizes 1–2 day gaps, fades for longer gaps.',

@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { addDays, daysBetween, formatTimeDisplay, timeSortKey } from './utils.js';
 
 // Each consecutive group of the requested size is a separate stretch.

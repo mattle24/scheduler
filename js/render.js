@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { escapeHTML, renderCalendar } from './calendar.js';
 import { renderScheduleAudit } from './scheduleAudit.js';
 import { renderOpponentTimeline } from './opponentTimeline.js';

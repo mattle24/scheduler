@@ -6,6 +6,7 @@ Browser-based little league baseball/softball scheduler. No server, no build too
 Whenever you make a change, check the methodology explainer in index.html to see if the user-facing docs should change.
 
 ## Files
+- **js/types.js** — Shared JSDoc data shapes (source of truth for scheduler and persisted structures)
 - **js/constants.js** — WEIGHTS, WEIGHT_LABELS, WEIGHT_DESCRIPTIONS, DAYS, NUM_ATTEMPTS, ANNEAL_ITERATIONS (+ setAnnealIterations for tests), and bucket threshold/importance constants
 - **js/utils.js** — Date/time helpers (parseDate, dateStr, daysBetween, getWeekendGroup, isoWeek), time slot helpers (normalizeTime, slotBucket, timeSortKey, formatTimeDisplay, slotKey, addDays), shuffle, hasThreeInFourDays, teamHasThreeInFourDays
 - **js/parser.js** — parseTSV: parses the field-availability TSV into slot objects
@@ -52,6 +53,8 @@ Slot claiming uses `sortKey` (format: `"date-timeSortKey-field"`) which uniquely
 9. `rebalanceHomeAway()` — final greedy home/away rebalancing pass after all field optimization; greedy flip pass plus a 2-hop chain pass through intermediate teams.
 
 ## Key Data Structures
+
+See `js/types.js` for the authoritative shared type definitions.
 - **Slot**: `{ date, dayOfWeek, weekendGroup, week, field, time, sortKey }`
 - **Game**: `{ date, dayOfWeek, time, field, home, away }` (home/away are 0-indexed team IDs)
 - **Division config**: `{ name, numTeams, gamesPerTeam, leagueSplit, fields: string[], excludedDays: number[] }` — read from UI division table. `excludedDays` contains day-of-week numbers (0=Sun..6=Sat) on which this division cannot be scheduled.

@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { hasSchedule, startSchedule } from './scheduleSession.js';
 import { WEIGHTS } from './constants.js';
 import { parseTSV } from './parser.js?v=3';

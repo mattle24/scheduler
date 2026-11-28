@@ -1,5 +1,8 @@
+// @ts-check
+/** @typedef {import("./types.js").Slot} Slot */
 import { parseDate, dateStr, getWeekendGroup, isoWeek, normalizeTime, timeSortKey } from './utils.js';
 
+/** @param {string} text @returns {Slot[]} */
 function parseTSV(text) {
   const lines = text.trim().split('\n').filter(l => l.trim());
   if (lines.length < 2) throw new Error('Add a header row with field names and at least one row with a date.');

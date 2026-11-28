@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { slotKey, timeSortKey, isoWeek, teamHasThreeInFourDays } from './utils.js';
 import { scoreCandidate, scoreCrossDivision } from './scoring.js';
 import { IncrementalScorer } from './incrementalScore.js';

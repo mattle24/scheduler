@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { WEIGHTS } from './constants.js';
 import { timeSortKey } from './utils.js';
 import {

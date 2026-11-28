@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { formatTimeDisplay, timeSortKey } from './utils.js';
 
 const teamLabel = team => `${team + 1}B`;

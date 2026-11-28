@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "npx -y -p typescript@5 tsc -p jsconfig.json",
+    "test": "node --test tests/"
+  }
+}

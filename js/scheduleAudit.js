@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { DAYS } from './constants.js';
 import { daysBetween, formatTimeDisplay, timeSortKey } from './utils.js';
 

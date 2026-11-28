@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { isoWeek, addDays, timeSortKey, formatTimeDisplay } from './utils.js';
 export const escapeHTML = (value) =>
   String(value).replace(

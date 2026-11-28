@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { WEIGHTS } from './constants.js';
 import { scoreDetails } from './scoring.js';
 import { renderMultiDivisionResults, setLastCSV, formatMultiDivisionCSV } from './render.js?v=4';

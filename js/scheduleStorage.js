@@ -1,3 +1,10 @@
+// @ts-check
+/** @typedef {import('./types.js').PackedSchedule} PackedSchedule */
+/** @typedef {import('./types.js').Slot} Slot */
+/** @typedef {import('./types.js').Game} Game */
+/** @typedef {import('./types.js').DivisionConfig} DivisionConfig */
+/** @typedef {import('./types.js').Weights} Weights */
+/** @typedef {{allSlots: Slot[], baseWeights: Weights, results: {division: DivisionConfig, weights: Weights, schedule: Game[]}[]}} StorageSession */
 import { slotKey } from './utils.js';
 
 export const SCHEDULE_STORAGE_KEY = 'scheduler_schedule_v1';
@@ -6,8 +13,10 @@ export const MAX_SNAPSHOT_CHARS = 500000;
 
 // Two availability entries can spell the same time as 9:00am and 09:00am.
 // Keep the spelling assigned to the game while enforcing occupancy by slotKey.
+/** @param {{date: string, time: string, field: string}} slot */
 const exactSlotKey = slot => `${slot.date}-${slot.time}-${slot.field}`;
 
+/** @param {StorageSession} session @returns {PackedSchedule} */
 export function packSchedule(session) {
   const indices = new Map(session.allSlots.map((slot, i) => [exactSlotKey(slot), i]));
   return {
@@ -32,15 +41,18 @@ export function packSchedule(session) {
     })),
   };
 }
+/** @param {StorageSession} session */
 export function encodeSchedule(session) {
   const text = JSON.stringify(packSchedule(session));
   if (text.length > MAX_SNAPSHOT_CHARS) throw new Error('Schedule exceeds storage limit');
   return text;
 }
+/** @param {string} text */
 export function decodeSchedule(text) {
   if (text.length > MAX_SNAPSHOT_CHARS) throw new Error('Saved schedule exceeds storage limit');
   return unpackSchedule(JSON.parse(text));
 }
+/** @param {PackedSchedule} data */
 export function unpackSchedule(data) {
   if (
     data.version !== 1 ||
@@ -109,6 +121,7 @@ export function unpackSchedule(data) {
   });
   return { results, allSlots, baseWeights: data.baseWeights };
 }
+/** @param {StorageSession} session @param {Storage} storage */
 export function saveScheduleSnapshot(session, storage) {
   try {
     storage.setItem(SCHEDULE_STORAGE_KEY, encodeSchedule(session));

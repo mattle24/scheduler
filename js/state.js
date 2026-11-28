@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { WEIGHTS } from './constants.js';
 
 export const STORAGE_KEY = 'scheduler_state';

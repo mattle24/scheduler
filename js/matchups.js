@@ -1,3 +1,4 @@
+// @ts-nocheck -- Pending migration to checked JSDoc.
 import { shuffle } from './utils.js';
 
 // ─── Module 2: Generate Tournament Rounds (Circle/Polygon Algorithm) ────────

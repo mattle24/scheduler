@@ -1,6 +1,8 @@
+// @ts-check
 import { WKND_BUCKET_THRESHOLDS } from './constants.js';
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
+/** @template T @param {T[]} arr @returns {T[]} */
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -10,6 +12,7 @@ function shuffle(arr) {
   return a;
 }
 
+/** @param {string} str */
 function parseDate(str) {
   str = str.trim().replace(/^["']|["']$/g, '');
   let d;
@@ -22,6 +25,7 @@ function parseDate(str) {
   return d;
 }
 
+/** @param {Date} d */
 function dateStr(d) {
   return d.toISOString().slice(0, 10);
 }
@@ -29,7 +33,9 @@ function dateStr(d) {
 // Memoized ISO date string ("2026-04-11") → integer days since epoch (UTC).
 // Date strings repeat constantly in scoring hot loops; parsing once avoids
 // millions of Date allocations.
+/** @type {Map<string, number>} */
 const dayNumCache = new Map();
+/** @param {string} dateString */
 function dayNum(dateString) {
   let n = dayNumCache.get(dateString);
   if (n === undefined) {
@@ -39,10 +45,12 @@ function dayNum(dateString) {
   return n;
 }
 
+/** @param {string} a @param {string} b */
 function daysBetween(a, b) {
   return dayNum(b) - dayNum(a);
 }
 
+/** @param {string} date */
 function getWeekendGroup(date) {
   const d = new Date(date + 'T00:00:00');
   const dow = d.getDay();
@@ -55,6 +63,7 @@ function getWeekendGroup(date) {
   return null;
 }
 
+/** @param {string} dateString */
 function isoWeek(dateString) {
   // Group by Mon–Sun: return the Monday's date as the week key
   const d = new Date(dateString + 'T00:00:00');
@@ -65,11 +74,13 @@ function isoWeek(dateString) {
   return dateStr(monday);
 }
 
+/** @param {string} t */
 function normalizeTime(t) {
   t = t.trim().toLowerCase().replace(/\s+/g, '');
   return t;
 }
 
+/** @param {number} dayOfWeek @param {string} time */
 function slotBucket(dayOfWeek, time) {
   const minutes = timeSortKey(time);
   if (dayOfWeek === 0 || dayOfWeek === 6) {
@@ -81,7 +92,9 @@ function slotBucket(dayOfWeek, time) {
 }
 
 // Memoized: called on every game in every scoring pass.
+/** @type {Map<string, number>} */
 const timeSortKeyCache = new Map();
+/** @param {string} t */
 function timeSortKey(t) {
   let v = timeSortKeyCache.get(t);
   if (v !== undefined) return v;
@@ -98,15 +111,19 @@ function timeSortKey(t) {
   return v;
 }
 
+/** @param {string} t */
 function formatTimeDisplay(t) {
   return t.replace(/^(\d):/, '0$1:').toUpperCase().replace(/(AM|PM)/, ' $1');
 }
 
+/** @param {{date: string, time: string, field: string}} g */
 function slotKey(g) {
   return g.date + '-' + String(timeSortKey(g.time)).padStart(5, '0') + '-' + g.field;
 }
 
+/** @type {Map<number, string>} */
 const dayStrCache = new Map();
+/** @param {string} dateString @param {number} n */
 function addDays(dateString, n) {
   const target = dayNum(dateString) + n;
   let s = dayStrCache.get(target);
@@ -119,6 +136,7 @@ function addDays(dateString, n) {
 
 // Returns true if adding newDate would give the team 3+ games in any 4-day window
 // Uses sorted day-number array for O(log n) binary search instead of Date allocations
+/** @param {number[]} sortedDayNums @param {number} newDayNum */
 function hasThreeInFourDays(sortedDayNums, newDayNum) {
   // Find where newDayNum would sit in the sorted array
   let lo = 0, hi = sortedDayNums.length;
@@ -148,6 +166,7 @@ function hasThreeInFourDays(sortedDayNums, newDayNum) {
 }
 
 // Returns true if a sorted array of dates contains 3+ games in any 4-day window
+/** @param {string[]} datesArray */
 function teamHasThreeInFourDays(datesArray) {
   const sorted = datesArray.map(dayNum).sort((a, b) => a - b);
   for (let i = 0; i < sorted.length; i++) {
